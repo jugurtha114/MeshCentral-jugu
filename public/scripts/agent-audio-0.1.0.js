@@ -180,9 +180,11 @@ var CreateAgentAudio = function (desktop) {
             // Tell agent to start sending audio
             if (desktop && desktop.m) { desktop.m.SendAudioStart(); }
 
-            // Update button icon
+            // Update button icon + active pulse animation
             var img = Q('DeskAudioButtonImage');
             if (img) { img.src = 'images/icon-audio-on.png'; }
+            var btn = Q('DeskAudioButton');
+            if (btn) { btn.classList.add('audio-active'); }
         }).catch(function (e) {
             obj._starting = false;
             console.log('MeshAudio worklet load failed:', e);
@@ -215,9 +217,11 @@ var CreateAgentAudio = function (desktop) {
         obj._jitter  = [];
         obj._nextSeq = -1;
 
-        // Update button icon
+        // Update button icon + remove active pulse animation
         var img = Q('DeskAudioButtonImage');
         if (img) { img.src = 'images/icon-audio-off.png'; }
+        var btn = Q('DeskAudioButton');
+        if (btn) { btn.classList.remove('audio-active'); }
     };
 
     // Toggle (called by the toolbar button)
