@@ -32,6 +32,7 @@ var CreateAgentAudio = function (desktop) {
     obj._gapCount   = 0;      // gaps detected in last 5s window
     obj._jitterDepth = 3;     // adaptive target depth in packets (3 = 60ms at 20ms/pkt)
     obj._gapTimer   = null;
+    obj._starting   = false;  // true while addModule() promise is pending
 
     var JITTER_MIN = 2;
     var JITTER_MAX = 8;
@@ -115,7 +116,8 @@ var CreateAgentAudio = function (desktop) {
     // then send MNG_AUDIO_START to the agent.
     // -----------------------------------------------------------------------
     obj.start = function () {
-        if (obj.active) return;
+        if (obj.active || obj._starting) return;
+        obj._starting = true;
         console.log('MeshAudio: start() called, caps=', obj.caps, 'active=', obj.active);
         if (!window.AudioDecoder) {
             console.log('MeshAudio: WebCodecs AudioDecoder not available in this browser.');
@@ -126,6 +128,7 @@ var CreateAgentAudio = function (desktop) {
         obj._actx = new AudioContext({ sampleRate: obj.caps.sampleRate });
 
         obj._actx.audioWorklet.addModule('scripts/agent-audio-worklet-0.1.0.js').then(function () {
+            obj._starting = false;
             obj._worklet = new AudioWorkletNode(obj._actx, 'mesh-audio-processor');
             obj._worklet.connect(obj._actx.destination);
 
@@ -169,6 +172,7 @@ var CreateAgentAudio = function (desktop) {
             var img = Q('DeskAudioButtonImage');
             if (img) { img.src = 'images/icon-audio-on.png'; }
         }).catch(function (e) {
+            obj._starting = false;
             console.log('MeshAudio worklet load failed:', e);
         });
     };
@@ -178,6 +182,7 @@ var CreateAgentAudio = function (desktop) {
     // -----------------------------------------------------------------------
     obj.stop = function () {
         if (!obj.active) return;
+        obj._starting = false;
         obj.active = false;
 
         if (obj._gapTimer) { clearInterval(obj._gapTimer); obj._gapTimer = null; }
