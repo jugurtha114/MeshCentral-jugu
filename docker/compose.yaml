@@ -12,10 +12,10 @@ services:
       - ALLOW_NEW_ACCOUNTS=true
       - TRUSTED_CERT=false
     volumes:
-      - ./meshcentral-data:/opt/meshcentral/meshcentral-data
-      - ./meshcentral-files:/opt/meshcentral/meshcentral-files
-      - ./meshcentral-web:/opt/meshcentral/meshcentral-web
-      - ./meshcentral-backups:/opt/meshcentral/meshcentral-backups
+      - ../container_data:/opt/meshcentral/meshcentral-data
+      - ../container_files:/opt/meshcentral/meshcentral-files
+      - ../container_web:/opt/meshcentral/meshcentral-web
+      - ../container_backups:/opt/meshcentral/meshcentral-backups
     ports:
       - "4443:4443"
     restart: unless-stopped

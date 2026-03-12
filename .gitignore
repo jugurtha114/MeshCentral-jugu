@@ -1,3 +1,13 @@
+## Runtime data — never commit
+container_data/
+container_files/
+container_web/
+container_backups/
+docker/meshcentral-data/
+docker/meshcentral-files/
+docker/meshcentral-web/
+docker/meshcentral-backups/
+
 ## Ignore nodejs things
 [Nn]ode_modules/
 [Tt]yping/
