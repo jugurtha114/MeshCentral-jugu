@@ -314,6 +314,23 @@ var CreateAgentRemoteDesktop = function (canvasid, scrolldiv) {
                 xMouseCursorCurrent = mouseCursors[cursorNum];
                 if (xMouseCursorActive) { obj.CanvasId.style.cursor = xMouseCursorCurrent; }
                 break;
+            case 90: // MNG_AUDIO_DATA — Opus-encoded audio chunk
+                if (obj.onAudioData) { obj.onAudioData(view); }
+                break;
+            case 91: // MNG_AUDIO_CAPS — Agent capability advertisement
+                if (cmdsize >= 9) {
+                    var audioCaps = {
+                        sampleRate: view[4] === 0 ? 48000 : 16000,
+                        channels: view[5],
+                        bitrateKbps: view[6],
+                        dtx: !!(view[7] & 0x01),
+                        fec: !!(view[7] & 0x02),
+                        captureAvailable: !!(view[7] & 0x04),
+                        platform: view[8]
+                    };
+                    if (obj.onAudioCaps) { obj.onAudioCaps(audioCaps); }
+                }
+                break;
             default:
                 console.log('Unknown command', cmd, cmdsize);
                 break;
@@ -615,6 +632,8 @@ var CreateAgentRemoteDesktop = function (canvasid, scrolldiv) {
 
     obj.GetDisplayNumbers = function () { obj.send(String.fromCharCode(0x00, 0x0B, 0x00, 0x04)); } // Get Terminal display
     obj.SetDisplay = function (number) { /*console.log('Set display', number);*/ obj.send(String.fromCharCode(0x00, 0x0C, 0x00, 0x06, number >> 8, number & 0xFF)); } // Set Terminal display
+    obj.SendAudioStart = function () { obj.send(String.fromCharCode(0x00, 0x5C, 0x00, 0x04)); } // MNG_AUDIO_START (92 = 0x5C)
+    obj.SendAudioStop  = function () { obj.send(String.fromCharCode(0x00, 0x5D, 0x00, 0x04)); } // MNG_AUDIO_STOP  (93 = 0x5D)
     obj.intToStr = function (x) { return String.fromCharCode((x >> 24) & 0xFF, (x >> 16) & 0xFF, (x >> 8) & 0xFF, x & 0xFF); }
     obj.shortToStr = function (x) { return String.fromCharCode((x >> 8) & 0xFF, x & 0xFF); }
 
