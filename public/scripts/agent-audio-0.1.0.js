@@ -146,13 +146,14 @@ var CreateAgentAudio = function (desktop) {
                     // Without this, Firefox/Safari may output s16 which misinterprets as float.
                     audioData.copyTo(pcm, { planeIndex: 0, format: 'f32-planar' });
                     var fmt = audioData.format;
+                    var nFrames = audioData.numberOfFrames;
                     audioData.close();
                     // Log first 3 decoded frames: format + max amplitude to diagnose silence vs playback issue
                     if (obj._decodeCount <= 3) {
                         var maxAmp = 0;
                         for (var i = 0; i < pcm.length; i++) { if (Math.abs(pcm[i]) > maxAmp) maxAmp = Math.abs(pcm[i]); }
                         console.log('MeshAudio: decoded frame #' + obj._decodeCount +
-                                    ' fmt=' + fmt + ' frames=' + audioData.numberOfFrames +
+                                    ' fmt=' + fmt + ' frames=' + nFrames +
                                     ' maxAmp=' + maxAmp.toFixed(5) +
                                     (maxAmp < 0.001 ? ' (SILENCE — play audio on managed device)' : ' (has content)'));
                     }
