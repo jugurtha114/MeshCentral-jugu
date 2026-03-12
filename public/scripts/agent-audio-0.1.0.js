@@ -41,6 +41,7 @@ var CreateAgentAudio = function (desktop) {
     // -----------------------------------------------------------------------
     obj.onCaps = function (caps) {
         obj.caps = caps;
+        console.log('MeshAudio: CAPS received', caps);
         // Show / hide the audio button in the UI based on capture_available
         var btn = Q('DeskAudioButton');
         if (btn) { QV('DeskAudioButton', caps.captureAvailable); }
@@ -54,6 +55,9 @@ var CreateAgentAudio = function (desktop) {
     obj.onData = function (view) {
         if (!obj.active) return;
         var seq   = (view[4] << 8) | view[5];
+        if (obj._jitter.length === 0 && obj._nextSeq === -1) {
+            console.log('MeshAudio: first audio frame received, seq=', seq);
+        }
         var flags = view[6];
         var opus  = view.slice(7); // Uint8Array of Opus payload
 
@@ -112,6 +116,7 @@ var CreateAgentAudio = function (desktop) {
     // -----------------------------------------------------------------------
     obj.start = function () {
         if (obj.active) return;
+        console.log('MeshAudio: start() called, caps=', obj.caps, 'active=', obj.active);
         if (!window.AudioDecoder) {
             console.log('MeshAudio: WebCodecs AudioDecoder not available in this browser.');
             return;
@@ -124,8 +129,16 @@ var CreateAgentAudio = function (desktop) {
             obj._worklet = new AudioWorkletNode(obj._actx, 'mesh-audio-processor');
             obj._worklet.connect(obj._actx.destination);
 
+            // Resume AudioContext — required by browser autoplay policy (Chrome 66+, Firefox).
+            // When AudioContext is created outside a user-gesture handler it starts
+            // in "suspended" state and produces no audio until explicitly resumed.
+            obj._actx.resume().then(function () {
+                console.log('MeshAudio: AudioContext state after resume:', obj._actx.state);
+            });
+
             obj._decoder = new AudioDecoder({
                 output: function (audioData) {
+                    if (!obj._decoded) { obj._decoded = true; console.log('MeshAudio: first frame decoded, frames=', audioData.numberOfFrames); }
                     // Copy decoded PCM to worklet ring buffer
                     var pcm = new Float32Array(audioData.numberOfFrames);
                     audioData.copyTo(pcm, { planeIndex: 0 });
@@ -145,6 +158,7 @@ var CreateAgentAudio = function (desktop) {
 
             obj.active = true;
             obj._nextSeq = -1;
+            obj._decoded = false;
             obj._jitter  = [];
             obj._startGapTimer();
 

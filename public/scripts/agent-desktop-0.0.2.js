@@ -7,6 +7,8 @@
 // Polyfill Uint8Array.slice() for IE
 if (!Uint8Array.prototype.slice) { Object.defineProperty(Uint8Array.prototype, 'slice', { value: function (begin, end) { return new Uint8Array(Array.prototype.slice.call(this, begin, end)); } }); }
 
+var _audioDataCount = 0; // throttle counter for MNG_AUDIO_DATA debug logging
+
 function isWindowsBrowser() {
     return navigator && !!(/win/i).exec(navigator.platform);
 }
@@ -315,10 +317,12 @@ var CreateAgentRemoteDesktop = function (canvasid, scrolldiv) {
                 if (xMouseCursorActive) { obj.CanvasId.style.cursor = xMouseCursorCurrent; }
                 break;
             case 90: // MNG_AUDIO_DATA — Opus-encoded audio chunk
+                if (++_audioDataCount <= 5) console.log('MeshAudio: DATA frame #' + _audioDataCount);
                 if (obj.onAudioData) { obj.onAudioData(view); }
                 break;
             case 91: // MNG_AUDIO_CAPS — Agent capability advertisement
                 if (cmdsize >= 9) {
+                    console.log('MeshAudio: raw CAPS frame flags=0x' + view[7].toString(16), 'captureAvailable=', !!(view[7] & 0x04));
                     var audioCaps = {
                         sampleRate: view[4] === 0 ? 48000 : 16000,
                         channels: view[5],
