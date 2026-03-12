@@ -117,18 +117,17 @@ var CreateAgentAudio = function (desktop) {
     // -----------------------------------------------------------------------
     obj.start = function () {
         if (obj.active || obj._starting) return;
-        obj._starting = true;
         console.log('MeshAudio: start() called, caps=', obj.caps, 'active=', obj.active);
         if (!window.AudioDecoder) {
             console.log('MeshAudio: WebCodecs AudioDecoder not available in this browser.');
             return;
         }
         if (!obj.caps || !obj.caps.captureAvailable) return;
+        obj._starting = true;
 
         obj._actx = new AudioContext({ sampleRate: obj.caps.sampleRate });
 
         obj._actx.audioWorklet.addModule('scripts/agent-audio-worklet-0.1.0.js').then(function () {
-            obj._starting = false;
             obj._worklet = new AudioWorkletNode(obj._actx, 'mesh-audio-processor');
             obj._worklet.connect(obj._actx.destination);
 
@@ -160,6 +159,7 @@ var CreateAgentAudio = function (desktop) {
             });
 
             obj.active = true;
+            obj._starting = false;
             obj._nextSeq = -1;
             obj._decoded = false;
             obj._jitter  = [];
@@ -181,8 +181,8 @@ var CreateAgentAudio = function (desktop) {
     // Stop audio: send MNG_AUDIO_STOP, tear down decoder and AudioContext.
     // -----------------------------------------------------------------------
     obj.stop = function () {
-        if (!obj.active) return;
         obj._starting = false;
+        if (!obj.active) return;
         obj.active = false;
 
         if (obj._gapTimer) { clearInterval(obj._gapTimer); obj._gapTimer = null; }
