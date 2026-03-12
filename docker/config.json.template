@@ -42,7 +42,8 @@
       "localSessionRecording": true,
       "_userNameIsEmail": true,
       "_certUrl": "my.reverse.proxy",
-      "allowedOrigin": false
+      "allowedOrigin": false,
+      "trustedcert": false
     }
   },
   "_letsencrypt": {
