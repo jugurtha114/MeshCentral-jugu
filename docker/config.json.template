@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/Ylianst/MeshCentral/master/meshcentral-config-schema.json",
+  "$schema": "https://raw.githubusercontent.com/jugurtha114/MeshCentral-jugu/feature/audio-stream/meshcentral-config-schema.json",
   "settings": {
     "plugins":{
       "enabled": false
