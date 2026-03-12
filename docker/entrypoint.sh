@@ -270,6 +270,18 @@ function dynamic_config() {
         sed -i 's/"allowedOrigin":/"_allowedOrigin":/g' "$CONFIG_FILE"
     fi
 
+    # TRUSTED_CERT
+    TRUSTED_CERT=${TRUSTED_CERT,,}
+    if [[ $TRUSTED_CERT =~ ^(true|false)$ ]]; then
+        echo "Setting trustedcert... $TRUSTED_CERT"
+
+        jq --argjson trusted_cert "$TRUSTED_CERT" \
+            '.domains[""].trustedcert = $trusted_cert' \
+            "$CONFIG_FILE" > temp_config.json && mv temp_config.json "$CONFIG_FILE"
+    else
+        echo "Invalid or no TRUSTED_CERT value given, leaving trustedcert as-is. Value given: $TRUSTED_CERT"
+    fi
+
     # certUrl
     if [[ -n $REVERSE_PROXY ]] && [[ -n $REVERSE_PROXY_TLS_PORT ]]; then
         REVERSE_PROXY_STRING="${REVERSE_PROXY}:${REVERSE_PROXY_TLS_PORT}"

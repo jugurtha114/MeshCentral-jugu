@@ -10,6 +10,7 @@ services:
       - PORT=4443
       - REDIR_PORT=80
       - ALLOW_NEW_ACCOUNTS=true
+      - TRUSTED_CERT=false
     volumes:
       - meshcentral-data:/opt/meshcentral/meshcentral-data
       - meshcentral-files:/opt/meshcentral/meshcentral-files
