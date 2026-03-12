@@ -213,6 +213,7 @@ var CreateAgentRemoteDesktop = function (canvasid, scrolldiv) {
         obj.SendCompressionLevel(obj.ImageType);
         obj.SendUnPause();
         obj.SendRemoteInputLock(2); // Query input lock state
+        obj.SendAudioQuery();       // MNG_AUDIO_QUERY: request CAPS now that relay is live
         // No need to event the display size change now, it will be evented on first draw.
         if (obj.onScreenSizeChange != null) { obj.onScreenSizeChange(obj, obj.ScreenWidth, obj.ScreenHeight, obj.CanvasId); }
     }
@@ -638,6 +639,7 @@ var CreateAgentRemoteDesktop = function (canvasid, scrolldiv) {
     obj.SetDisplay = function (number) { /*console.log('Set display', number);*/ obj.send(String.fromCharCode(0x00, 0x0C, 0x00, 0x06, number >> 8, number & 0xFF)); } // Set Terminal display
     obj.SendAudioStart = function () { obj.send(String.fromCharCode(0x00, 0x5C, 0x00, 0x04)); } // MNG_AUDIO_START (92 = 0x5C)
     obj.SendAudioStop  = function () { obj.send(String.fromCharCode(0x00, 0x5D, 0x00, 0x04)); } // MNG_AUDIO_STOP  (93 = 0x5D)
+    obj.SendAudioQuery = function () { obj.send(String.fromCharCode(0x00, 0x5E, 0x00, 0x04)); } // MNG_AUDIO_QUERY (94 = 0x5E) — pull-handshake: request CAPS re-send
     obj.intToStr = function (x) { return String.fromCharCode((x >> 24) & 0xFF, (x >> 16) & 0xFF, (x >> 8) & 0xFF, x & 0xFF); }
     obj.shortToStr = function (x) { return String.fromCharCode((x >> 8) & 0xFF, x & 0xFF); }
 
