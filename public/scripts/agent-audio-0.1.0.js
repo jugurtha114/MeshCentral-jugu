@@ -140,11 +140,22 @@ var CreateAgentAudio = function (desktop) {
 
             obj._decoder = new AudioDecoder({
                 output: function (audioData) {
-                    if (!obj._decoded) { obj._decoded = true; console.log('MeshAudio: first frame decoded, frames=', audioData.numberOfFrames); }
-                    // Copy decoded PCM to worklet ring buffer
+                    obj._decodeCount = (obj._decodeCount || 0) + 1;
                     var pcm = new Float32Array(audioData.numberOfFrames);
-                    audioData.copyTo(pcm, { planeIndex: 0 });
+                    // Force f32-planar output regardless of decoder's native format.
+                    // Without this, Firefox/Safari may output s16 which misinterprets as float.
+                    audioData.copyTo(pcm, { planeIndex: 0, format: 'f32-planar' });
+                    var fmt = audioData.format;
                     audioData.close();
+                    // Log first 3 decoded frames: format + max amplitude to diagnose silence vs playback issue
+                    if (obj._decodeCount <= 3) {
+                        var maxAmp = 0;
+                        for (var i = 0; i < pcm.length; i++) { if (Math.abs(pcm[i]) > maxAmp) maxAmp = Math.abs(pcm[i]); }
+                        console.log('MeshAudio: decoded frame #' + obj._decodeCount +
+                                    ' fmt=' + fmt + ' frames=' + audioData.numberOfFrames +
+                                    ' maxAmp=' + maxAmp.toFixed(5) +
+                                    (maxAmp < 0.001 ? ' (SILENCE — play audio on managed device)' : ' (has content)'));
+                    }
                     obj._worklet.port.postMessage(pcm, [pcm.buffer]);
                 },
                 error: function (e) {
@@ -161,7 +172,7 @@ var CreateAgentAudio = function (desktop) {
             obj.active = true;
             obj._starting = false;
             obj._nextSeq = -1;
-            obj._decoded = false;
+            obj._decodeCount = 0;
             obj._jitter  = [];
             obj._startGapTimer();
 
