@@ -21,6 +21,7 @@
     <script type="text/javascript" src="scripts/meshcentral{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/agent-redir-ws-0.1.1{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/agent-desktop-0.0.2{{{min}}}.js"></script>
+    <script type="text/javascript" src="scripts/agent-audio-0.1.0{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/amt-0.2.0{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/amt-redir-ws-0.1.0{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/amt-desktop-0.0.2{{{min}}}.js"></script>
@@ -1252,6 +1253,7 @@
                             <td></td>
                             <td>
                                 <label style="display:block" id="d7deskAutoLockLabel"><input type="checkbox" id="d7deskAutoLock" />Lock on Disconnect</label>
+                                <label style="display:block" id="d7deskAudioLabel"><input type="checkbox" id="d7deskAudio" />Enable Audio on Connect</label>
                             </td>
                         </tr>
                     </table>
@@ -4662,6 +4664,13 @@
             return r.split('\n').join('<br />') + '<br /><br />';
         }
 
+        // Remote audio streaming
+        var deskAudio = null;
+        function deskAudioToggle() {
+            if (deskAudio == null) return;
+            deskAudio.toggle();
+        }
+
         function connectDesktop(e, contype, tsid, consent) {
             setSessionActivity();
             QV('p11DeskSessionSelector', false);
@@ -4698,6 +4707,12 @@
                     if (desktopsettings.autolock == true) { desktop.options.autolock = true; }
                     desktop.onStateChanged = onDesktopStateChange;
                     if ((features2 & 0x2000) != 0) desktop.m.stopInput = true;
+                    // Audio streaming setup
+                    if (typeof CreateAgentAudio !== 'undefined') {
+                        deskAudio = CreateAgentAudio(desktop);
+                        desktop.m.onAudioCaps = function(caps) { deskAudio.onCaps(caps); if (caps.captureAvailable && Q('d7deskAudio') && Q('d7deskAudio').checked) { deskAudio.start(); } };
+                        desktop.m.onAudioData = function(view)  { deskAudio.onData(view); };
+                    }
                     desktop.onConsoleMessageChange = function () {
                         if (desktop.consoleMessage) {
                             Q('p11DeskConsoleMsg').innerHTML += formatAgentConsoleMessage(desktop.consoleMessage, desktop.consoleMessageId, desktop.consoleMessageArgs);
@@ -4764,6 +4779,8 @@
                 case 0:
                     // Disconnect and clean up the remote desktop
                     desktop.Stop();
+                    // Stop audio
+                    if (deskAudio != null) { deskAudio.stop(); deskAudio = null; }
                     desktopNode = desktop = null;
                     QV('DeskScreens', false);
                     if (fullscreen == true) { deskToggleFull(); }
@@ -4792,6 +4809,7 @@
             desktopsettings.scaling = d7bitmapscaling.value;
             desktopsettings.framerate = d7framelimiter.value;
             desktopsettings.autolock = d7deskAutoLock.checked;
+            desktopsettings.audioOnConnect = d7deskAudio.checked;
             desktopsettings.agentencoding = d7encoding.value;
             localStorage.setItem('desktopsettings', JSON.stringify(desktopsettings));
             applyDesktopSettings();
@@ -4818,6 +4836,7 @@
             d7bitmapscaling.value = desktopsettings.scaling;
             if (desktopsettings.framerate) { d7framelimiter.value = desktopsettings.framerate; }
             if (desktopsettings.autolock != null) { d7deskAutoLock.checked = desktopsettings.autolock; }
+            if (desktopsettings.audioOnConnect != null) { d7deskAudio.checked = desktopsettings.audioOnConnect; }
         }
 
 

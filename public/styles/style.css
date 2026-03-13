@@ -3328,3 +3328,14 @@ a {
     background-color: #AAA;
     font-weight: bold;
 }
+
+/* Audio streaming active: green pulsing ring around the button */
+@keyframes audioActivePulse {
+    0%   { box-shadow: 0 0 0 0 rgba(60,210,70,.7); }
+    70%  { box-shadow: 0 0 0 5px rgba(60,210,70,0); }
+    100% { box-shadow: 0 0 0 0 rgba(60,210,70,0); }
+}
+#DeskAudioButton.audio-active {
+    border-radius: 3px;
+    animation: audioActivePulse 1.6s ease-out infinite;
+}

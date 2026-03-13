@@ -36,6 +36,7 @@
     <script type="text/javascript" src="scripts/agent-redir-rtc-0.1.0{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/agent-desktop-0.0.2{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/agent-rdp-0.0.1{{{min}}}.js"></script>
+    <script type="text/javascript" src="scripts/agent-audio-0.1.0{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/qrcode.min.js"></script>
     <script type="text/javascript" src="scripts/xterm{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/xterm-addon-fit{{{min}}}.js"></script>
@@ -1060,6 +1061,9 @@
                             <span id=DeskRunButton cmenu="deskPreConfigScriptContextMenu" class="deskarea" title="Run a script on this computer" role="button">
                                 <i class="fa-solid fa-fw fa-play" onclick=runDeviceCmd()></i>
                             </span>
+                            <span id=DeskAudioButton title="Toggle remote audio streaming" style="display:none" role="button">
+                                <i class="fa-solid fa-fw fa-volume-xmark" onclick=deskAudioToggle() id=DeskAudioButtonImage></i>
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -1890,6 +1894,10 @@
                                         <div id="d7deskAutoLockLabel" class="form-check">
                                             <input id="d7deskAutoLock" class="form-check-input me-2" type="checkbox" />
                                             <label for="d7deskAutoLock" class="form-check-label">Lock on Disconnect</label>
+                                        </div>
+                                        <div id="d7deskAudioLabel" class="form-check">
+                                            <input id="d7deskAudio" class="form-check-input me-2" type="checkbox" />
+                                            <label for="d7deskAudio" class="form-check-label">Enable Audio on Connect</label>
                                         </div>
                                     </div>
                                 </fieldset>
@@ -9362,6 +9370,13 @@
             }
         }
 
+        // Remote audio streaming
+        var deskAudio = null;
+        function deskAudioToggle() {
+            if (deskAudio == null) return;
+            deskAudio.toggle();
+        }
+
         function deskClipboardInFunction() {
             if (desktop == null || desktop.State != 3) return;
             if (desktop.m.getClipboard) {
@@ -10485,6 +10500,12 @@
                     desktop.onStateChanged = onDesktopStateChange;
                     if ((features2 & 0x2000) != 0) desktop.m.stopInput = true;
                     desktop.m.onRemoteInputLockChanged = function (obj, state) { QV('DeskInputLockedButton', state); QV('DeskInputUnLockedButton', !state); }
+                    // Audio streaming setup
+                    if (typeof CreateAgentAudio !== 'undefined') {
+                        deskAudio = CreateAgentAudio(desktop);
+                        desktop.m.onAudioCaps = function(caps) { deskAudio.onCaps(caps); if (caps.captureAvailable && Q('d7deskAudio') && Q('d7deskAudio').checked) { deskAudio.start(); } };
+                        desktop.m.onAudioData = function(view)  { deskAudio.onData(view); };
+                    }
                     desktop.m.onKeyboardStateChanged = function (obj, state) {
                         QS('p11numlock').display = ((state & 1) ? 'inline-block' : 'none');
                         QS('p11scrolllock').display = ((state & 2) ? 'inline-block' : 'none');
@@ -10701,6 +10722,9 @@
                         // Disconnect and clean up the remote desktop
                         desktop.Stop();
                     }
+                    // Stop audio and hide audio button
+                    if (deskAudio != null) { deskAudio.stop(); deskAudio = null; }
+                    QV('DeskAudioButton', false);
                     desktopNode = desktop = null;
                     QV('DeskFocus', false);
                     QV('DeskMonitorSelectionSpan', false);
@@ -10817,6 +10841,7 @@
             desktopsettings.remotekeymap = d7deskRemoteKeyMap.checked;
             desktopsettings.autoclipboard = d7deskAutoClipboard.checked;
             desktopsettings.autolock = d7deskAutoLock.checked;
+            desktopsettings.audioOnConnect = d7deskAudio.checked;
             desktopsettings.localkeymap = d7localKeyMap.checked;
             desktopsettings.kvmrmw = d7kvmrmw.checked;
             desktopsettings.rdpsize = d7rdpsize.value;
@@ -10869,6 +10894,7 @@
             if (desktopsettings.remotekeymap != null) { d7deskRemoteKeyMap.checked = desktopsettings.remotekeymap; }
             if (desktopsettings.autoclipboard != null) { d7deskAutoClipboard.checked = desktopsettings.autoclipboard; }
             if (desktopsettings.autolock != null) { d7deskAutoLock.checked = desktopsettings.autolock; }
+            if (desktopsettings.audioOnConnect != null) { d7deskAudio.checked = desktopsettings.audioOnConnect; }
             if (desktopsettings.localkeymap) { d7localKeyMap.checked = desktopsettings.localkeymap; }
             if (desktopsettings.kvmrmw) { d7kvmrmw.checked = desktopsettings.kvmrmw; }
             QV('deskFocusBtn', (desktop != null) && (desktop.contype == 2) && (desktop.state != 0) && (desktopsettings.showfocus));
