@@ -1549,11 +1549,19 @@ NoMeshesPanel img {
 
 /* Mic and Camera panels: #column_l (their shared ancestor) clips overflow
  * rather than scrolling it, so each panel needs its own bounded height for
- * overflow-y to have anything to do -- same fix, same offset, as p3users/
- * p50groups above. Content short enough to fit was masking this for Mic. */
+ * overflow-y to have anything to do. Not the same 244px offset as p3users/
+ * p50groups above, even though all three share #column_l: those panels'
+ * own scrollable element sits below extra title/toolbar chrome inside
+ * their panel, while #p22main/#p23main's title is the first thing inside
+ * the scrollable element itself, flush with #column_l's own top edge.
+ * Measured directly (getBoundingClientRect) against the topbar+footer
+ * chrome that actually surrounds #column_l, at multiple viewport heights,
+ * rather than copied from a panel with a different layout -- reusing
+ * 244px here reserved ~110px more than this chrome actually needs,
+ * which is what showed up as dead space below short content. */
 #p22main,
 #p23main {
-    max-height: calc(100vh - 244px);
+    max-height: calc(100vh - 135px);
     overflow-y: auto;
 }
 
