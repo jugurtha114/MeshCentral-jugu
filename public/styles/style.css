@@ -1547,6 +1547,16 @@ NoMeshesPanel img {
     overflow-y: auto;
 }
 
+/* Mic and Camera panels: #column_l (their shared ancestor) clips overflow
+ * rather than scrolling it, so each panel needs its own bounded height for
+ * overflow-y to have anything to do -- same fix, same offset, as p3users/
+ * p50groups above. Content short enough to fit was masking this for Mic. */
+#p22main,
+#p23main {
+    max-height: calc(100vh - 244px);
+    overflow-y: auto;
+}
+
 .p3usersTable {
     width: 100%;
     border-spacing: 0;
@@ -3883,6 +3893,30 @@ a {
 @media (prefers-reduced-motion: reduce) {
     #DeskMicButton.micRequesting .desktopButtons { animation: none; opacity: 0.6; }
     #DeskMicLevel > i { transition: none; }
+}
+
+/* Generic status dot for a panel's own status line (currently the Camera
+   panel, id=p23statusDot) -- a glance-able state indicator that does not
+   depend on reading the text next to it. Green for "live" rather than the
+   mic's warning red: unlike an open microphone, a visible camera preview is
+   already its own indicator that something is being captured, so this dot
+   only needs to answer "is it working right now", not "is this sensitive". */
+.devstatusdot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 7px;
+    background: #9e9e9e;
+    flex: none;
+}
+
+.devstatusdot.live { background: #43a047; }
+.devstatusdot.requesting { background: #e53935; animation: micPulse 1.2s ease-in-out infinite; }
+.devstatusdot.error { background: #e53935; }
+
+@media (prefers-reduced-motion: reduce) {
+    .devstatusdot.requesting { animation: none; opacity: 0.6; }
 }
 
 /* Audio/Mic quick-toggle tabs (MainDevAudio/MainDevMic in the device menu):

@@ -1164,7 +1164,7 @@
                 <div id=p19pages></div>
             </div>
             <div id=p22 style="display:none">
-                <div id=p22main style="overflow-y:auto">
+                <div id=p22main>
                     <div id="p22title">
                         <div id="p22BackButton" style="float:left"><div class="backButton" tabindex=0 onclick=goBack() title="Back" onkeypress="if (event.key == 'Enter') goBack()"><div class="backButtonEx"></div></div></div>
                         <h1>Mic<span id=p22deviceName></span></h1>
@@ -1242,14 +1242,14 @@
                 </div>
             </div>
             <div id=p23 style="display:none">
-                <div id=p23main style="overflow-y:auto">
+                <div id=p23main>
                     <div id="p23title">
                         <div id="p23BackButton" style="float:left"><div class="backButton" tabindex=0 onclick=goBack() title="Back" onkeypress="if (event.key == 'Enter') goBack()"><div class="backButtonEx"></div></div></div>
                         <h1>Camera<span id=p23deviceName></span></h1>
                     </div>
                     <div id=p23body style="max-width:760px">
                         <div id=p23info style="font-size:12px;color:gray;margin-bottom:8px"></div>
-                        <div id=p23statusText style="font-size:14px;margin-bottom:8px"></div>
+                        <div id=p23statusText style="font-size:14px;margin-bottom:10px;display:flex;align-items:center"><span id=p23statusDot class="devstatusdot"></span><span id=p23statusLabel></span></div>
 
                         <div id=p23viewport style="position:relative;max-width:640px;background:#101010;border-radius:4px;overflow:hidden;aspect-ratio:4/3">
                             <canvas id=p23canvas style="display:block;width:100%;height:100%;object-fit:contain"></canvas>
@@ -1257,8 +1257,12 @@
                         </div>
                         <div id=p23stats style="font-size:12px;color:gray;margin:6px 0 10px;min-height:15px"></div>
 
-                        <input type=button id=p23startstop value="Start Camera" onclick=p23Toggle(event) />
-                        <input type=button id=p23snap value="Take Photo" onclick=p23Snapshot(event) />
+                        <div id=p23toolbar style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+                            <input type=button id=p23startstop value="Start Camera" onclick=p23Toggle(event) />
+                            <input type=button id=p23snap value="Take Photo" onclick=p23Snapshot(event) title="Capture one still at the camera's highest quality and resolution -- this never starts the live stream" />
+                            <span style="width:1px;align-self:stretch;background:rgba(128,128,128,0.35);margin:0 2px"></span>
+                            <input type=button id=p23micshortcut value="Start Mic" onclick=p23MicShortcutToggle(event) title="Listen to this device's microphone without leaving the Camera tab" />
+                        </div>
 
                         <div id="p23unsupportedNotice" class="warningbox" style="display:none;margin-top:12px">This device's agent does not support camera settings yet -- it will use its default settings.</div>
 
@@ -8922,6 +8926,7 @@
 
         function deskMicApplyState(state, detail) {
             p22UpdateStatus();
+            p23UpdateMicShortcut();
 
             var img = Q('DeskMicButtonImage');
             var btn = Q('DeskMicButton');
@@ -9239,15 +9244,35 @@
             p23UpdateStatus();
         }
 
+        // Same "shortcut" ergonomics as p22Toggle() on the Mic panel, just
+        // reachable from here: connects the shared KVM tunnel if needed
+        // (video still suppressed -- see p23EnsureSession) rather than
+        // silently doing nothing the way plain deskMicToggle() does when no
+        // session exists yet, which is what a first click on this button
+        // from a cold Camera panel would otherwise hit.
+        function p23MicShortcutToggle(event) {
+            if (event) { event.stopPropagation(); }
+            if (deskMic && (deskMic.state == 'live' || deskMic.state == 'requesting')) { deskMic.stop(); return; }
+            p23EnsureSession(function () { if (deskMic) { deskMic.start(true); } });
+            p23UpdateMicShortcut();
+        }
+
         function p23Snapshot(event) {
             if (event) { event.stopPropagation(); }
             p23EnsureSession(function () {
                 if (!deskCam) return;
                 deskCam.takeSnapshot({
-                    // 0 means the camera's native size. A still is sent once,
-                    // so unlike the stream it can afford full resolution and a
-                    // high quality setting.
-                    width: 0, height: 0, quality: 92,
+                    // 0 for all three means "the camera's best": native
+                    // resolves the true maximum resolution itself (via
+                    // VIDIOC_ENUM_FRAMESIZES / IMFSourceReader) and always
+                    // defaults quality to its own maximum, so there is a
+                    // single source of truth for "highest quality and
+                    // resolution" instead of a number duplicated here. This
+                    // is always its own independent capture -- it pauses and
+                    // resumes a running stream rather than piggybacking on
+                    // it, so a photo never starts (or changes the resolution
+                    // of) the live stream.
+                    width: 0, height: 0, quality: 0,
                     deviceIndex: camsettings.deviceIndex,
                     skipConsentPrompt: true
                 });
@@ -9256,7 +9281,7 @@
             p23UpdateStatus();
         }
 
-        function p23SetStatus(text) { var e = Q('p23statusText'); if (e) { e.textContent = text; } }
+        function p23SetStatus(text) { var e = Q('p23statusLabel'); if (e) { e.textContent = text; } }
 
         function p23UpdateStatus() {
             var btn = Q('p23startstop');
@@ -9284,6 +9309,9 @@
             // device that has one.
             if (snapBtn) { snapBtn.disabled = (state == 'unavailable'); }
 
+            var dot = Q('p23statusDot');
+            if (dot) { dot.className = 'devstatusdot' + (live ? ' live' : (state == 'requesting') ? ' requesting' : (state == 'unavailable') ? ' error' : ''); }
+
             switch (state) {
                 case 'live':
                     btn.value = 'Stop Camera';
@@ -9301,6 +9329,24 @@
                     btn.value = 'Start Camera';
                     p23SetStatus('Camera is off.');
                     break;
+            }
+
+            p23UpdateMicShortcut();
+        }
+
+        // Reflects deskMic's state on the Camera panel's own "Start Mic"
+        // shortcut, so listening can be started/stopped without switching to
+        // the Mic tab. Called both from here and from deskMicApplyState()
+        // (mic state can change while the Camera panel is the one showing).
+        function p23UpdateMicShortcut() {
+            var btn = Q('p23micshortcut');
+            if (!btn) return;
+            var state = deskMic ? deskMic.state : 'unavailable';
+            btn.disabled = (state == 'unavailable');
+            switch (state) {
+                case 'live': btn.value = 'Stop Mic'; break;
+                case 'requesting': btn.value = 'Cancel Mic'; break;
+                default: btn.value = 'Start Mic'; break;
             }
         }
 
