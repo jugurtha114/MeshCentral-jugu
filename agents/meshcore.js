@@ -3555,16 +3555,18 @@ function micConsentHandleStart(tunnel, skipPrompt) {
     // dialogs if the operator clicks repeatedly.
     if (httprequest.micConsentPending === true) { return false; }
 
-    // Consent for the microphone is required unless the server cleared bit 128
-    // (userConsentFlags.micprompt). It defaults to on: listening to someone's
-    // room should never happen without them knowing. The Mic panel's own
-    // "listen directly" request (skipPrompt) is a second, independent way to
-    // reach the same fast path: an operator using the dedicated, video-free
-    // Mic tab already isn't watching the desktop, so there is nothing to
-    // interactively ask about; the Desktop panel's own mic button never sets
-    // this, and still goes through the interactive prompt whenever policy
-    // requires it.
-    var consentRequired = ((httprequest.consent == null) || ((httprequest.consent & 128) != 0));
+    // Consent for the microphone is required unless the server cleared bit 512
+    // (userConsentFlags.micprompt -- bit 512, not 128: that position collided
+    // with the pre-existing per-mesh/user/device "Registry: Notify user" flag,
+    // see p20editmeshconsent() in default.handlebars). It defaults to on:
+    // listening to someone's room should never happen without them knowing.
+    // The Mic panel's own "listen directly" request (skipPrompt) is a second,
+    // independent way to reach the same fast path: an operator using the
+    // dedicated, video-free Mic tab already isn't watching the desktop, so
+    // there is nothing to interactively ask about; the Desktop panel's own
+    // mic button never sets this, and still goes through the interactive
+    // prompt whenever policy requires it.
+    var consentRequired = ((httprequest.consent == null) || ((httprequest.consent & 512) != 0));
     if (!consentRequired || skipPrompt === true) {
         // Policy (or the operator's quiet-listen request) says no prompt is
         // needed, so go straight to what accepting a real prompt does: mark
@@ -3771,10 +3773,13 @@ function camConsentHandleStart(tunnel, skipPrompt) {
     // dialogs if the operator clicks repeatedly (or a retry lands).
     if (httprequest.camConsentPending === true) { return false; }
 
-    // Consent for the camera is required unless the server cleared bit 256
-    // (userConsentFlags.camprompt). It defaults to on: pointing a camera at
-    // someone should never happen without them knowing.
-    var consentRequired = ((httprequest.consent == null) || ((httprequest.consent & 256) != 0));
+    // Consent for the camera is required unless the server cleared bit 1024
+    // (userConsentFlags.camprompt -- bit 1024, not 256: that position collided
+    // with the pre-existing per-mesh/user/device "Registry: Prompt for user
+    // consent" flag, see p20editmeshconsent() in default.handlebars). It
+    // defaults to on: pointing a camera at someone should never happen
+    // without them knowing.
+    var consentRequired = ((httprequest.consent == null) || ((httprequest.consent & 1024) != 0));
     if (!consentRequired || skipPrompt === true) {
         MeshServerLogEx(30, null, (skipPrompt === true ? "Starting camera capture without a prompt (operator requested quiet viewing, " : "Starting camera capture, consent not required by policy (") + httprequest.remoteaddr + ")", httprequest);
         camConsentGranted.call({ tunnel: tunnel });

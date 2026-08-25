@@ -1591,24 +1591,49 @@ function CreateMeshCentralServer(config, args) {
                 delete obj.config.domains[i].agentcustomization;
             }
 
-            // Convert user consent flags
-            if (typeof obj.config.domains[i].userconsentflags == 'object') {
+            // Convert user consent flags. Runs whenever userconsentflags is not
+            // already the converted number (so a second pass over an
+            // already-converted domain is a safe no-op, same as before).
+            if (typeof obj.config.domains[i].userconsentflags != 'number') {
                 var flags = 0;
-                if (obj.config.domains[i].userconsentflags.desktopnotify == true) { flags |= 1; }
-                if (obj.config.domains[i].userconsentflags.terminalnotify == true) { flags |= 2; }
-                if (obj.config.domains[i].userconsentflags.filenotify == true) { flags |= 4; }
-                if (obj.config.domains[i].userconsentflags.desktopprompt == true) { flags |= 8; }
-                if (obj.config.domains[i].userconsentflags.terminalprompt == true) { flags |= 16; }
-                if (obj.config.domains[i].userconsentflags.fileprompt == true) { flags |= 32; }
-                if (obj.config.domains[i].userconsentflags.desktopprivacybar == true) { flags |= 64; }
-                // Microphone prompt defaults to ON: making a remote operator
-                // audible in someone's room must be an explicit local decision,
-                // so it is only cleared when set to false outright.
-                if (obj.config.domains[i].userconsentflags.micprompt !== false) { flags |= 128; }
+                var ucf = obj.config.domains[i].userconsentflags;
+                if (typeof ucf == 'object') {
+                    if (ucf.desktopnotify == true) { flags |= 1; }
+                    if (ucf.terminalnotify == true) { flags |= 2; }
+                    if (ucf.filenotify == true) { flags |= 4; }
+                    if (ucf.desktopprompt == true) { flags |= 8; }
+                    if (ucf.terminalprompt == true) { flags |= 16; }
+                    if (ucf.fileprompt == true) { flags |= 32; }
+                    if (ucf.desktopprivacybar == true) { flags |= 64; }
+                }
+                // Microphone prompt defaults to ON even when no
+                // userconsentflags block is configured at all. Previously this
+                // whole conversion -- including the mic/cam defaults below --
+                // only ran when userconsentflags was already an object, so on
+                // a stock config.json (neither sample config ships this block)
+                // domain.userconsentflags stayed undefined forever, every
+                // `typeof domain.userconsentflags == 'number'` check
+                // downstream (meshuser.js, meshrelay.js,
+                // meshdesktopmultiplex.js, meshdevicefile.js, webserver.js)
+                // was permanently a no-op, and mic/cam consent was
+                // unenforceable regardless of policy intent. Making a remote
+                // operator audible in someone's room must be an explicit
+                // local decision, so this is only cleared when set to false
+                // outright.
+                //
+                // Bits 512/1024 (not 128/256): the mic/cam feature originally
+                // reused 128/256, not noticing those were already
+                // "Registry: Notify user"/"Registry: Prompt for user consent"
+                // in the per-mesh/user/device/usergroup consent dialog
+                // (default.handlebars' p20editmeshconsent) -- editing that
+                // dialog for any reason rebuilds its whole consent value from
+                // just its checkboxes, silently resetting mic/cam consent as
+                // a side effect. 512/1024 are unused in this bitmask.
+                if (!(typeof ucf == 'object' && ucf.micprompt === false)) { flags |= 512; }
                 // Camera prompt likewise defaults to ON, and for a stronger
                 // version of the same reason: being watched without knowing is
                 // at least as intrusive as being overheard.
-                if (obj.config.domains[i].userconsentflags.camprompt !== false) { flags |= 256; }
+                if (!(typeof ucf == 'object' && ucf.camprompt === false)) { flags |= 1024; }
                 obj.config.domains[i].userconsentflags = flags;
             }
 

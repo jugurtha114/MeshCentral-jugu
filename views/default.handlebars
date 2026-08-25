@@ -16325,6 +16325,16 @@
             x += '<div style="width:100%;border-bottom:1px solid gray;margin-bottom:5px;margin-top:8px"><b>' + "Registry" + '</b></div>';
             x += '<div><label><input type=checkbox id=d20flag8 ' + ((consent & 0x0080) ? 'checked' : '') + '>' + "Notify user" + '</label></div>';
             x += '<div><label><input type=checkbox id=d20flag9 ' + ((consent & 0x0100) ? 'checked' : '') + '>' + "Prompt for user consent" + '</label></div>';
+            // Bits 0x0200/0x0400 (512/1024), not 0x0080/0x0100: those two are
+            // already Registry's Notify/Prompt flags above. Microphone and
+            // camera only ever need a single "prompt for consent" bit each --
+            // unlike Desktop/Terminal/Files/Registry there is no separate
+            // "notify" mode for them, since a mic/cam access without consent
+            // is refused outright by the agent rather than merely announced.
+            x += '<div style="width:100%;border-bottom:1px solid gray;margin-bottom:5px;margin-top:8px"><b>' + "Microphone" + '</b></div>';
+            x += '<div><label><input type=checkbox id=d20flag10 ' + ((consent & 0x0200) ? 'checked' : '') + '>' + "Prompt for user consent" + '</label></div>';
+            x += '<div style="width:100%;border-bottom:1px solid gray;margin-bottom:5px;margin-top:8px"><b>' + "Camera" + '</b></div>';
+            x += '<div><label><input type=checkbox id=d20flag11 ' + ((consent & 0x0400) ? 'checked' : '') + '>' + "Prompt for user consent" + '</label></div>';
             setDialogMode(2, title, 3, p20editmeshconsentEx, x, editType);
             if (serverinfo.consent) {
                 if (serverinfo.consent & 0x0001) { Q('d20flag1').checked = true; }
@@ -16336,6 +16346,8 @@
                 if (serverinfo.consent & 0x0040) { Q('d20flag7').checked = true; }
                 if (serverinfo.consent & 0x0080) { Q('d20flag8').checked = true; }
                 if (serverinfo.consent & 0x0100) { Q('d20flag9').checked = true; }
+                if (serverinfo.consent & 0x0200) { Q('d20flag10').checked = true; }
+                if (serverinfo.consent & 0x0400) { Q('d20flag11').checked = true; }
                 QE('d20flag1', !(serverinfo.consent & 0x0001));
                 QE('d20flag2', !(serverinfo.consent & 0x0008));
                 QE('d20flag3', !(serverinfo.consent & 0x0002));
@@ -16345,6 +16357,8 @@
                 QE('d20flag7', !(serverinfo.consent & 0x0040));
                 QE('d20flag8', !(serverinfo.consent & 0x0080));
                 QE('d20flag9', !(serverinfo.consent & 0x0100));
+                QE('d20flag10', !(serverinfo.consent & 0x0200));
+                QE('d20flag11', !(serverinfo.consent & 0x0400));
             }
         }
 
@@ -16359,6 +16373,8 @@
             if (Q('d20flag7').checked) { consent += 0x0040; }
             if (Q('d20flag8').checked) { consent += 0x0080; }
             if (Q('d20flag9').checked) { consent += 0x0100; }
+            if (Q('d20flag10').checked) { consent += 0x0200; }
+            if (Q('d20flag11').checked) { consent += 0x0400; }
             if (editType == 1) { meshserver.send({ action: 'editmesh', meshid: currentMesh._id, consent: consent }); }
             if (editType == 2) { meshserver.send({ action: 'edituser', id: currentUser._id, consent: consent }); }
             if (editType == 3) { meshserver.send({ action: 'changedevice', nodeid: currentNode._id, consent: consent }); }
