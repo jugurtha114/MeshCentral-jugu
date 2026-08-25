@@ -9231,16 +9231,29 @@
             return true;
         }
 
-        // Starts with skipConsentPrompt: an operator on the dedicated Camera
-        // tab has no desktop view to be looking at, so there is nothing for an
-        // interactive prompt to add here. Still only a *request* -- the
-        // agent's policy-aware JS layer decides whether to honour it, and
-        // native never grants consent to itself. See camConsentHandleStart()
-        // in agents/meshcore.js.
+        // Deliberately does NOT pass skipConsentPrompt, unlike the Mic panel.
+        //
+        // This used to pass true, reasoning (copied from p22Toggle) that "an
+        // operator on the dedicated Camera tab has no desktop view to be
+        // looking at, so there is nothing for an interactive prompt to add".
+        // That reasoning is wrong here because it mistakes who the prompt is
+        // for: the prompt is shown to the *local user being filmed*, not to
+        // the operator, so whether the operator happens to be watching the
+        // desktop has no bearing on it. The effect was that the Camera tab --
+        // the main way anyone actually starts the camera -- silently
+        // suppressed the consent dialog on every platform, defeating the
+        // entire fail-closed gate that kvm_cam.h, kvm_cam_start() and
+        // camConsentHandleStart() are all built around ("pointing a camera at
+        // someone should never happen without them knowing").
+        //
+        // Turning the prompt off is a *server policy* decision
+        // (userConsentFlags.camprompt / the per-device Camera consent
+        // checkbox), never something the browser asks for on the operator's
+        // behalf. See camConsentHandleStart() in agents/meshcore.js.
         function p23Toggle(event) {
             if (event) { event.stopPropagation(); }
             if (deskCam && (deskCam.state == 'live' || deskCam.state == 'requesting')) { deskCam.stop(); p23UpdateStatus(); return; }
-            p23EnsureSession(function () { if (deskCam) { deskCam.start(true); } });
+            p23EnsureSession(function () { if (deskCam) { deskCam.start(false); } });
             p23UpdateStatus();
         }
 
@@ -9273,8 +9286,15 @@
                     // it, so a photo never starts (or changes the resolution
                     // of) the live stream.
                     width: 0, height: 0, quality: 0,
-                    deviceIndex: camsettings.deviceIndex,
-                    skipConsentPrompt: true
+                    deviceIndex: camsettings.deviceIndex
+                    // Deliberately no skipConsentPrompt -- see p23Toggle().
+                    // kvm_cam.h is explicit that a still is not a lesser
+                    // intrusion than a stream ("a still photograph is not a
+                    // lesser intrusion than a moving one"), so taking a photo
+                    // goes through exactly the same consent gate as starting
+                    // the live stream. Suppressing it here previously let a
+                    // single click photograph the local user with no prompt
+                    // at all.
                 });
                 p23SetStatus('Taking a photo...');
             });
