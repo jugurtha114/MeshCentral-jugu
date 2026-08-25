@@ -3872,11 +3872,21 @@ function camConsentGranted() {
 
     // Tell the native layer that consent is granted, then start capture. The
     // browser learns the outcome from the MNG_CAM_CAPS that follows.
+    // Failures here are reported rather than swallowed. If this write does not
+    // land, native never learns consent was granted, so it never starts
+    // capture and never sends the MNG_CAM_CAPS the browser is waiting on --
+    // leaving the operator staring at "Waiting for the device user to allow
+    // camera access..." forever with nothing anywhere saying why. A silent
+    // catch here is indistinguishable from that hang, so say what happened.
     try {
-        var kvm = httprequest.desktop.kvm;
+        if ((httprequest.desktop == null) || (httprequest.desktop.kvm == null)) { throw 'no KVM stream on this session'; }
         var frame = Buffer.from(String.fromCharCode(0x00, 110, 0x00, 0x04));   // MNG_CAM_CONSENT
-        kvm.write(frame);
-    } catch (ex) { }
+        httprequest.desktop.kvm.write(frame);
+        MeshServerLogEx(30, null, "Camera consent forwarded to the agent's native layer (" + httprequest.remoteaddr + ")", httprequest);
+    } catch (ex) {
+        MeshServerLogEx(30, null, "Camera consent granted but could not be forwarded to native: " + ex, httprequest);
+        try { tunnel.write(JSON.stringify({ ctrlChannel: '102938', type: 'console', msg: "Camera consent could not be delivered to the agent: " + ex, msgid: 2 })); } catch (ex2) { }
+    }
 
     if (httprequest.consent && (httprequest.consent & 1)) {
         // Notification is enabled for this domain: say plainly that the camera
