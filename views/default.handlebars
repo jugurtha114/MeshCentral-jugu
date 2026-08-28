@@ -35,6 +35,12 @@
     <script type="text/javascript" src="scripts/agent-audio-0.1.0{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/agent-mic-0.1.0{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/agent-camera-0.1.0{{{min}}}.js"></script>
+    <!-- WebM encoder used by the Camera panel to record the live stream.
+         Kept as a plain file (no {{{min}}}) because it is already a
+         self-contained UMD with no external deps, and it must work under
+         either minify mode; the minify pipeline (translate.js) does not
+         currently include it in its list. -->
+    <script type="text/javascript" src="scripts/webm-writer.js"></script>
     <script type="text/javascript" src="scripts/qrcode.min.js"></script>
     <script type="text/javascript" src="scripts/xterm{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/xterm-addon-fit{{{min}}}.js"></script>
@@ -1246,83 +1252,142 @@
                     <div id="p23title">
                         <div id="p23BackButton" style="float:left"><div class="backButton" tabindex=0 onclick=goBack() title="Back" onkeypress="if (event.key == 'Enter') goBack()"><div class="backButtonEx"></div></div></div>
                         <h1>Camera<span id=p23deviceName></span></h1>
+                        <div id="p23titleRight" style="float:right;margin-top:12px">
+                            <div class="viewSelector" onclick=p23FullToggle(event) title="Full Screen. Hold shift for browser full screen." tabindex=0 onkeypress="if (event.key == 'Enter') p23FullToggle(event)"><div class="viewSelector5"></div></div>
+                        </div>
                     </div>
-                    <div id=p23body style="max-width:760px">
-                        <div id=p23info style="font-size:12px;color:gray;margin-bottom:8px"></div>
-                        <div id=p23statusText style="font-size:14px;margin-bottom:10px;display:flex;align-items:center"><span id=p23statusDot class="devstatusdot"></span><span id=p23statusLabel></span></div>
-
-                        <div id=p23viewport style="position:relative;max-width:640px;background:#101010;border-radius:4px;overflow:hidden;aspect-ratio:4/3">
-                            <canvas id=p23canvas style="display:block;width:100%;height:100%;object-fit:contain"></canvas>
-                            <div id=p23placeholder style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#888;font-size:13px;text-align:center;padding:8px">The camera is not running.</div>
-                        </div>
-                        <div id=p23stats style="font-size:12px;color:gray;margin:6px 0 10px;min-height:15px"></div>
-
-                        <div id=p23toolbar style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-                            <input type=button id=p23startstop value="Start Camera" onclick=p23Toggle(event) />
-                            <input type=button id=p23snap value="Take Photo" onclick=p23Snapshot(event) title="Capture one still at the camera's highest quality and resolution -- this never starts the live stream" />
-                            <span style="width:1px;align-self:stretch;background:rgba(128,128,128,0.35);margin:0 2px"></span>
-                            <input type=button id=p23micshortcut value="Start Mic" onclick=p23MicShortcutToggle(event) title="Listen to this device's microphone without leaving the Camera tab" />
+                    <div id=p23body>
+                        <div id="p23statusBar" style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(128,128,128,0.08);border-radius:5px;margin-bottom:12px;flex-wrap:wrap">
+                            <span id=p23statusDot class="devstatusdot"></span>
+                            <span id=p23statusLabel style="font-size:13px;font-weight:500"></span>
+                            <span id=p23info style="font-size:12px;color:gray;margin-left:auto"></span>
                         </div>
 
-                        <div id="p23unsupportedNotice" class="warningbox" style="display:none;margin-top:12px">This device's agent does not support camera settings yet -- it will use its default settings.</div>
+                        <div id="p23twoCol" style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+                            <div id="p23left" style="flex:1 1 380px;min-width:300px">
+                                <div id=p23viewport style="position:relative;width:100%;background:#101010;border-radius:6px;overflow:hidden;aspect-ratio:16/9">
+                                    <canvas id=p23canvas style="display:block;width:100%;height:100%;object-fit:contain"></canvas>
+                                    <div id=p23placeholder style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#888;font-size:13px;text-align:center;padding:8px">The camera is not running.</div>
+                                    <div id="p23recBadge" style="position:absolute;top:10px;left:10px;display:none;align-items:center;gap:6px;background:rgba(0,0,0,0.7);padding:3px 10px;border-radius:4px;pointer-events:none">
+                                        <span style="width:8px;height:8px;background:#e53935;border-radius:50%;animation:micPulse 1.2s ease-in-out infinite;display:inline-block"></span>
+                                        <span style="color:#fff;font-size:11px;font-weight:700;letter-spacing:0.5px">REC</span>
+                                        <span id="p23recTimer" style="color:#fff;font-size:11px;font-family:monospace">00:00</span>
+                                    </div>
+                                    <div id="p23liveBadge" style="position:absolute;top:10px;right:10px;display:none;align-items:center;gap:5px;background:rgba(0,0,0,0.7);padding:3px 10px;border-radius:4px;pointer-events:none">
+                                        <span style="width:6px;height:6px;background:#43a047;border-radius:50%;display:inline-block"></span>
+                                        <span style="color:#fff;font-size:11px;font-weight:600">LIVE</span>
+                                    </div>
+                                </div>
+                                <div id=p23stats style="font-size:12px;color:gray;margin:8px 0 12px;min-height:15px"></div>
 
-                        <div id=p23snapwrap style="display:none;margin-top:16px;padding:12px;border:1px solid rgba(128,128,128,0.35);border-radius:4px">
-                            <div style="font-weight:bold;margin-bottom:6px">Last Photo</div>
-                            <img id=p23snapimg alt="Captured photo" style="display:block;max-width:100%;max-height:320px;border-radius:3px;background:#101010" />
-                            <table id=p23snapmeta style="font-size:12px;color:gray;margin-top:8px;border-collapse:collapse"></table>
-                            <div style="margin-top:10px;display:flex;align-items:center;flex-wrap:wrap;gap:6px">
-                                <label>Save as
-                                    <select id=p23snapformat style="margin-left:4px"></select>
-                                </label>
-                                <input type=button id=p23snapsave value="Save Photo" onclick=p23SaveSnapshot() />
+                                <div id=p23toolbar style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+                                    <input type=button id=p23startstop value="Start Camera" onclick=p23Toggle(event) style="min-width:120px" />
+                                    <input type=button id=p23snap value="Take Photo" onclick=p23Snapshot(event) title="Capture one still -- this never starts the live stream" />
+                                    <input type=button id=p23rec value="Record" onclick=p23RecToggle(event) title="Record the live stream to a WebM video file" />
+                                    <span style="width:1px;align-self:stretch;background:rgba(128,128,128,0.35);margin:0 2px"></span>
+                                    <input type=button id=p23micshortcut value="Start Mic" onclick=p23MicShortcutToggle(event) title="Listen to this device's microphone without leaving the Camera tab" />
+                                </div>
+
+                                <div id="p23unsupportedNotice" class="warningbox" style="display:none;margin-top:12px">This device's agent does not support camera settings yet -- it will use its default settings.</div>
+
+                                <div id=p23snapwrap style="display:none;margin-top:16px;padding:14px;border:1px solid rgba(128,128,128,0.35);border-radius:6px;background:rgba(128,128,128,0.04)">
+                                    <div style="font-weight:bold;margin-bottom:10px;font-size:13px;color:#444">Photos <span id="p23photocount" style="font-weight:normal;color:gray"></span></div>
+                                    <div id="p23photoroll" style="display:flex;gap:8px;overflow-x:auto;padding:4px 2px 8px 2px"></div>
+                                    <table id=p23snapmeta style="font-size:12px;color:gray;border-collapse:collapse;width:100%;margin-top:8px"></table>
+                                    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+                                        <input type=button id=p23snapsave value="Save Photo" onclick=p23SaveSnapshot(event) title="Save the selected photo in the format and quality chosen in Photo Settings" />
+                                        <input type=button id=p23snapclear value="Clear" onclick=p23ClearPhotos(event) style="margin-left:auto" title="Forget all photos taken in this session" />
+                                    </div>
+                                    <div id=p23snapformatnote style="font-size:11px;color:gray;margin-top:8px"></div>
+                                </div>
                             </div>
-                            <div id=p23snapformatnote style="font-size:11px;color:gray;margin-top:6px"></div>
-                        </div>
 
-                        <div id=p23settings style="margin-top:16px">
-                            <div style="font-weight:bold;margin-bottom:4px">Camera</div>
-                            <div style="display:flex;align-items:center">
-                                <select id=p23device onchange=p23DeviceChanged() style="flex:1;max-width:300px">
-                                    <option value="-1">System Default</option>
-                                </select>
-                                <span id=p23deviceRefresh title="Refresh camera list" onclick=p23QueryDevices() onkeypress="if (event.key == 'Enter') p23QueryDevices()" tabindex=0 style="cursor:pointer;margin-left:6px;font-size:16px">&#8635;</span>
-                            </div>
+                            <div id="p23right" style="flex:0 0 260px;min-width:220px;max-width:320px">
+                                <div id=p23settings style="padding:14px;border:1px solid rgba(128,128,128,0.35);border-radius:6px;background:rgba(128,128,128,0.04)">
+                                    <div style="font-weight:bold;margin-bottom:10px;font-size:13px;color:#444">Camera Settings</div>
+                                    <div style="margin-bottom:12px">
+                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Device</label>
+                                        <div style="display:flex;align-items:center">
+                                            <select id=p23device onchange=p23DeviceChanged() style="flex:1">
+                                                <option value="-1">System Default</option>
+                                            </select>
+                                            <span id=p23deviceRefresh title="Refresh camera list" onclick=p23QueryDevices() onkeypress="if (event.key == 'Enter') p23QueryDevices()" tabindex=0 style="cursor:pointer;margin-left:6px;font-size:16px">&#8635;</span>
+                                        </div>
+                                    </div>
+                                    <div style="margin-bottom:12px">
+                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Profile</label>
+                                        <select id=p23preset onchange=camSettingsPresetChanged() style="width:100%">
+                                            <option value="balanced">Balanced (Default)</option>
+                                            <option value="lowbandwidth">Low Bandwidth</option>
+                                            <option value="highquality">High Quality</option>
+                                            <option value="smooth">Smooth Motion</option>
+                                            <option value="custom">Custom</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Advanced</label>
+                                        <div id="p23advanced">
+                                            <div style="margin-bottom:10px">
+                                                <label style="display:block;font-size:12px;margin-bottom:3px">Resolution</label>
+                                                <select id="p23resolution" onchange=p23AdvancedChanged() style="width:100%">
+                                                    <option value="0x0">Camera Default</option>
+                                                    <option value="320x240">320 x 240 (QVGA)</option>
+                                                    <option value="640x480">640 x 480 (VGA)</option>
+                                                    <option value="800x600">800 x 600 (SVGA)</option>
+                                                    <option value="1280x720">1280 x 720 (720p)</option>
+                                                    <option value="1920x1080">1920 x 1080 (1080p)</option>
+                                                </select>
+                                            </div>
+                                            <div style="display:flex;gap:10px;margin-bottom:10px">
+                                                <div style="flex:1">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px">FPS</label>
+                                                    <input type="number" id="p23fps" min="1" max="60" style="width:100%" onchange=p23AdvancedChanged() />
+                                                </div>
+                                                <div style="flex:1">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px">Quality (1-100)</label>
+                                                    <input type="number" id="p23quality" min="1" max="100" style="width:100%" onchange=p23AdvancedChanged() />
+                                                </div>
+                                            </div>
+                                            <div style="font-size:11px;color:gray;margin-bottom:10px">Quality is used only when the camera cannot produce JPEG itself.</div>
+                                            <label style="display:block;margin-bottom:8px;font-size:13px"><input type="checkbox" id="p23suppress" onchange=p23AdvancedChanged() style="margin-right:6px" />Skip unchanged frames</label>
+                                            <div style="margin-bottom:10px">
+                                                <label style="display:block;font-size:12px;margin-bottom:3px">Motion Sensitivity</label>
+                                                <select id="p23threshold" onchange=p23AdvancedChanged() style="width:100%">
+                                                    <option value="1">Highest</option>
+                                                    <option value="3">High</option>
+                                                    <option value="6">Medium</option>
+                                                    <option value="12">Low</option>
+                                                </select>
+                                            </div>
+                                            <label style="display:block;margin-bottom:4px;font-size:13px"><input type="checkbox" id="p23forceraw" onchange=p23AdvancedChanged() style="margin-right:6px" />Re-encode on device</label>
+                                            <div style="font-size:11px;color:gray">Forces the device to re-compress frames. Use only if the camera's built-in JPEG looks wrong.</div>
+                                        </div>
+                                    </div>
+                                </div>
 
-                            <div style="font-weight:bold;margin:14px 0 4px">Profile</div>
-                            <select id=p23preset onchange=camSettingsPresetChanged() style="max-width:300px">
-                                <option value="balanced">Balanced (Default)</option>
-                                <option value="lowbandwidth">Low Bandwidth</option>
-                                <option value="highquality">High Quality</option>
-                                <option value="smooth">Smooth Motion</option>
-                                <option value="custom">Custom</option>
-                            </select>
-
-                            <div style="font-weight:bold;margin:14px 0 4px">Advanced</div>
-                            <div id="p23advanced">
-                                <label style="display:block">Resolution<br />
-                                    <select id="p23resolution" onchange=p23AdvancedChanged()>
-                                        <option value="0x0">Camera Default</option>
-                                        <option value="320x240">320 x 240 (QVGA)</option>
-                                        <option value="640x480">640 x 480 (VGA)</option>
-                                        <option value="800x600">800 x 600 (SVGA)</option>
-                                        <option value="1280x720">1280 x 720 (720p)</option>
-                                        <option value="1920x1080">1920 x 1080 (1080p)</option>
-                                    </select>
-                                </label>
-                                <label style="display:block">Frame Rate (fps)<br /><input type="number" id="p23fps" min="1" max="60" style="width:60px" onchange=p23AdvancedChanged() /></label>
-                                <label style="display:block">JPEG Quality (1-100)<br /><input type="number" id="p23quality" min="1" max="100" style="width:60px" onchange=p23AdvancedChanged() /></label>
-                                <div style="font-size:11px;color:gray;margin:2px 0 8px">Only used when the camera cannot produce JPEG itself. When it can, its own frames are forwarded untouched and this has no effect.</div>
-                                <label style="display:block"><input type="checkbox" id="p23suppress" onchange=p23AdvancedChanged() />Skip unchanged frames -- an idle room costs almost no bandwidth</label>
-                                <label style="display:block">Motion Sensitivity<br />
-                                    <select id="p23threshold" onchange=p23AdvancedChanged()>
-                                        <option value="1">Highest (send almost every frame)</option>
-                                        <option value="3">High</option>
-                                        <option value="6">Medium</option>
-                                        <option value="12">Low (only obvious movement)</option>
-                                    </select>
-                                </label>
-                                <label style="display:block"><input type="checkbox" id="p23forceraw" onchange=p23AdvancedChanged() />Re-encode on the device instead of forwarding the camera's own JPEG</label>
-                                <div style="font-size:11px;color:gray;margin:2px 0 0">Leave this off. Turning it on makes the managed device spend CPU re-compressing every frame, and is only useful to override a camera whose built-in JPEG looks wrong.</div>
+                                <div id="p23photosec" style="margin-top:12px;padding:14px;border:1px solid rgba(128,128,128,0.35);border-radius:6px;background:rgba(128,128,128,0.04)">
+                                    <div style="font-weight:bold;margin-bottom:10px;font-size:13px;color:#444">Photo Settings</div>
+                                    <div style="margin-bottom:12px">
+                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Save As</label>
+                                        <select id=p23snapformat style="width:100%" onchange=p23PhotoSettingsChanged()></select>
+                                    </div>
+                                    <div style="margin-bottom:12px">
+                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Capture Resolution</label>
+                                        <select id="p23photores" onchange=p23PhotoSettingsChanged() style="width:100%">
+                                            <option value="0x0">Camera Native (max quality)</option>
+                                            <option value="640x480">640 x 480 (VGA)</option>
+                                            <option value="1280x720">1280 x 720 (720p)</option>
+                                            <option value="1920x1080">1920 x 1080 (1080p)</option>
+                                            <option value="2560x1440">2560 x 1440 (1440p)</option>
+                                            <option value="3840x2160">3840 x 2160 (4K)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Save Quality</label>
+                                        <input type="range" id="p23photoquality" min="10" max="100" step="5" value="90" style="width:100%" oninput=p23PhotoQualitySlider() onchange=p23PhotoSettingsChanged() />
+                                        <div style="font-size:11px;color:gray;margin-top:2px" id="p23photoqualityLabel">90%</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -9197,6 +9262,7 @@
 
         function p23Show() {
             camSettingsPopulate();
+            p23PhotoSettingsPopulate();
             p23UpdateStatus();
         }
 
@@ -9274,18 +9340,24 @@
             if (event) { event.stopPropagation(); }
             p23EnsureSession(function () {
                 if (!deskCam) return;
+                // Read the operator's photo-resolution choice. '0x0' (the
+                // default) means "camera native max" -- the agent resolves
+                // the true maximum itself (VIDIOC_ENUM_FRAMESIZES /
+                // IMFSourceReader), which is a single source of truth
+                // instead of a number duplicated here. Any other value is
+                // an explicit request the agent honours if the sensor can
+                // produce it, and silently falls back to native otherwise.
+                // Quality 0 keeps the agent's own maximum-quality encoding
+                // (it defaults to the highest the sensor offers) -- the
+                // "Save Quality" slider only affects the *browser-side*
+                // re-encode when saving as WebP/PNG; the capture itself is
+                // always the device's best JPEG, and 'JPEG' in the save
+                // format passes those bytes through untouched.
+                var wh = (Q('p23photores').value || '0x0').split('x');
+                var w = parseInt(wh[0], 10) || 0;
+                var h = parseInt(wh[1], 10) || 0;
                 deskCam.takeSnapshot({
-                    // 0 for all three means "the camera's best": native
-                    // resolves the true maximum resolution itself (via
-                    // VIDIOC_ENUM_FRAMESIZES / IMFSourceReader) and always
-                    // defaults quality to its own maximum, so there is a
-                    // single source of truth for "highest quality and
-                    // resolution" instead of a number duplicated here. This
-                    // is always its own independent capture -- it pauses and
-                    // resumes a running stream rather than piggybacking on
-                    // it, so a photo never starts (or changes the resolution
-                    // of) the live stream.
-                    width: 0, height: 0, quality: 0,
+                    width: w, height: h, quality: 0,
                     deviceIndex: camsettings.deviceIndex
                     // Deliberately no skipConsentPrompt -- see p23Toggle().
                     // kvm_cam.h is explicit that a still is not a lesser
@@ -9351,6 +9423,19 @@
                     break;
             }
 
+            // The "LIVE" badge only appears while streaming; the "REC"
+            // badge is independent (recording can be on only while live,
+            // but the two indicators have different meaning: live is the
+            // state of the camera session, rec is the state of the file
+            // being written to the operator's disk).
+            var liveBadge = Q('p23liveBadge');
+            if (liveBadge) { liveBadge.style.display = live ? 'flex' : 'none'; }
+            // Recording requires the live stream -- if the camera is off
+            // the recording can't keep producing frames, so auto-stop it.
+            // The panel's own stop button will be re-enabled by the
+            // subsequent status refresh above.
+            if (!live && p23RecActive) { p23RecToggle(); }
+
             p23UpdateMicShortcut();
         }
 
@@ -9384,12 +9469,20 @@
             e.textContent = bits.join(' · ');
         }
 
-        function p23SnapshotReceived(snap) {
-            var img = Q('p23snapimg');
-            if (img) { img.src = snap.url; }
-            QV('p23snapwrap', true);
+        // ----- Photo strip -------------------------------------------------
+        // Photos accumulate in the left panel's "Photos" area (up to 20,
+        // oldest evicted). The most recent is active by default; clicking a
+        // thumbnail makes it active and updates the metadata table below.
+        // "Save Photo" saves the active one in the operator's chosen format
+        // and quality. All photos stay in memory for the duration of the
+        // session -- the operator can flip through them and save any subset
+        // in the format they want, without re-taking.
+        var p23Photos = [];       // [{ snap, url, el }] oldest first
+        var p23PhotoMax = 20;
+        var p23ActivePhoto = null;
 
-            var rows = [
+        function p23PhotoMetaRows(snap) {
+            return [
                 ['Taken', snap.takenAt.toLocaleString()],
                 ['Resolution', snap.width + ' x ' + snap.height],
                 ['Size', (snap.bytes < 1024) ? (snap.bytes + ' B') : (Math.round(snap.bytes / 1024) + ' KB')],
@@ -9397,13 +9490,68 @@
                 ['Source', snap.passthrough ? 'Straight from the camera, not re-encoded' : 'Encoded on the device'],
                 ['Capture time', snap.captureMs + ' ms']
             ];
+        }
+
+        function p23RenderPhotoMeta() {
+            if (!p23ActivePhoto) return;
+            var rows = p23PhotoMetaRows(p23ActivePhoto.snap);
             var html = '';
             for (var i = 0; i < rows.length; i++) {
                 html += '<tr><td style="padding:1px 10px 1px 0;vertical-align:top;white-space:nowrap">' + rows[i][0] + '</td><td style="padding:1px 0">' + EscapeHtml(rows[i][1]) + '</td></tr>';
             }
             QH('p23snapmeta', html);
+        }
 
+        function p23ActivatePhoto(p) {
+            p23ActivePhoto = p;
+            p23RenderPhotoMeta();
+            // Mark the active one visually
+            for (var i = 0; i < p23Photos.length; i++) {
+                var el = p23Photos[i].el;
+                if (el) { el.classList.toggle('p23photo-active', p23Photos[i] === p); }
+            }
+        }
+
+        function p23RemoveOldestPhoto() {
+            if (p23Photos.length <= p23PhotoMax) { return; }
+            var oldest = p23Photos.shift();
+            if (oldest && oldest.el) { try { oldest.el.remove(); } catch (ex) { } }
+            if (oldest && oldest.url) { try { URL.revokeObjectURL(oldest.url); } catch (ex) { } }
+            if (oldest === p23ActivePhoto) {
+                var first = p23Photos[0] || null;
+                if (first) { p23ActivatePhoto(first); } else { p23ActivePhoto = null; QH('p23snapmeta', ''); }
+            }
+        }
+
+        function p23SnapshotReceived(snap) {
+            var strip = Q('p23photoroll');
+            if (!strip) { return; }
+
+            // Feature-detect formats once; every photo saves in one of these.
             p23PopulateSaveFormats();
+
+            // Build the thumbnail element
+            var thumb = document.createElement('img');
+            thumb.className = 'p23photo';
+            thumb.src = snap.url;
+            thumb.alt = 'Captured photo';
+            thumb.title = snap.takenAt.toLocaleString() + ' · ' + snap.width + ' x ' + snap.height;
+            var rec = { snap: snap, url: snap.url, el: thumb };
+            thumb.addEventListener('click', function () { p23ActivatePhoto(rec); });
+            strip.appendChild(thumb);
+            p23Photos.push(rec);
+            p23RemoveOldestPhoto();
+            p23ActivatePhoto(rec);
+
+            // Keep the module's canonical "last snapshot" pointing at the
+            // active one so p23SaveSnapshot and any external code that
+            // reads deskCam.lastSnapshot get the operator's selection.
+            if (deskCam) { deskCam.lastSnapshot = snap; }
+
+            var cnt = Q('p23photocount');
+            if (cnt) { cnt.textContent = '(' + p23Photos.length + ')'; }
+
+            QV('p23snapwrap', true);
             p23UpdateStatus();
         }
 
@@ -9412,8 +9560,8 @@
         // otherwise save a file with the wrong extension.
         function p23PopulateSaveFormats() {
             var sel = Q('p23snapformat');
-            if (!sel || !deskCam) return;
-            if (sel.options.length > 0) return;    // already built
+            if (!sel || !deskCam) { return; }
+            if (sel.options.length > 0) { return; }    // already built
             var fmts = deskCam.supportedSaveFormats(), html = '';
             for (var i = 0; i < fmts.length; i++) {
                 html += '<option value="' + fmts[i].id + '">' + EscapeHtml(fmts[i].label) + '</option>';
@@ -9426,11 +9574,252 @@
         }
 
         function p23SaveSnapshot() {
-            if (!deskCam || !deskCam.lastSnapshot) return;
+            if (!deskCam || !p23ActivePhoto) { return; }
             var sel = Q('p23snapformat');
             var fmt = sel ? sel.value : 'jpeg';
             var name = 'camera-' + (currentNode ? currentNode.name.replace(/[^A-Za-z0-9._-]/g, '_') : 'device');
-            deskCam.saveSnapshot(deskCam.lastSnapshot, fmt, name);
+            // Pass the operator's Save Quality (0..1) through. 'jpeg'
+            // ignores it (the device's own bytes ship unmodified); every
+            // other format honours it via toBlob(mime, quality).
+            var qs = Q('p23photoquality');
+            var q = (qs) ? (parseInt(qs.value, 10) || 90) / 100 : 0.9;
+            deskCam.saveSnapshot(p23ActivePhoto.snap, fmt, name, q);
+        }
+
+        function p23PhotoSettingsChanged() {
+            // Persist operator's photo preferences across sessions.
+            var res = Q('p23photores'), qual = Q('p23photoquality');
+            var fmt = Q('p23snapformat');
+            var obj = { res: res ? res.value : '0x0', qual: qual ? qual.value : '90', fmt: fmt ? fmt.value : 'jpeg' };
+            putstore('camphoto', JSON.stringify(obj));
+            // The quality slider label
+            var lab = Q('p23photoqualityLabel');
+            if (lab && qual) { lab.textContent = qual.value + '%'; }
+        }
+
+        function p23PhotoQualitySlider() {
+            var lab = Q('p23photoqualityLabel');
+            var qual = Q('p23photoquality');
+            if (lab && qual) { lab.textContent = qual.value + '%'; }
+        }
+
+        function p23PhotoSettingsPopulate() {
+            try {
+                var t = getstore('camphoto');
+                if (t) {
+                    var obj = JSON.parse(t);
+                    if (obj.res) { var res = Q('p23photores'); if (res && res.options) { res.value = obj.res; } }
+                    if (obj.qual) { var qual = Q('p23photoquality'); if (qual) { qual.value = obj.qual; var lab = Q('p23photoqualityLabel'); if (lab) { lab.textContent = obj.qual + '%'; } } }
+                    if (obj.fmt) { var fmt = Q('p23snapformat'); if (fmt && fmt.options) { fmt.value = obj.fmt; } }
+                }
+            } catch (ex) { }
+            // Make sure the save-format options are populated (feature-detect WebP etc.)
+            p23PopulateSaveFormats();
+        }
+
+        function p23ClearPhotos() {
+            for (var i = 0; i < p23Photos.length; i++) {
+                var p = p23Photos[i];
+                if (p.el) { try { p.el.remove(); } catch (ex) { } }
+                if (p.url) { try { URL.revokeObjectURL(p.url); } catch (ex) { } }
+            }
+            p23Photos.length = 0;
+            p23ActivePhoto = null;
+            var strip = Q('p23photoroll');
+            if (strip) { strip.innerHTML = ''; }
+            var cnt = Q('p23photocount');
+            if (cnt) { cnt.textContent = ''; }
+            QH('p23snapmeta', '');
+        }
+
+        // ----- Recording ----------------------------------------------------
+        // Records the live stream to a .webm video file on the operator's
+        // machine. The panel hands the display canvas to the WebM writer
+        // every time the agent-camera module paints a frame
+        // (deskCam.onFramePainted, see p23OnFramePainted below), so the
+        // video is exactly what the operator sees -- no second decode or
+        // repaint pipeline that could drift.
+        //
+        // WebMWriter is a VP8-in-WebM muxer (public/scripts/webm-writer.js):
+        // each frame is encoded losslessly to WebP, and its VP8 payload is
+        // written as a keyframe SimpleBlock. Every frame is a keyframe, so
+        // the output plays back in every WebM/VP8 player at the nominal
+        // frame rate, and the Cues written on complete() give real seeking.
+        // The cost is a larger file than an inter-encoded video (all
+        // keyframes), which is the correct trade for an incident capture
+        // where fidelity of the recorded moment beats file size.
+        //
+        // Memory: the writer buffers in chunks flushed every 5 s of video
+        // (MAX_CLUSTER_DURATION_MSEC) plus per-frame WebP strings released
+        // after they are muxed -- tens of MB over a minute at 720p, not the
+        // whole capture. Recording long enough to fill the page's heap at
+        // 1080p/30 is the one real limit; the elapsed timer makes that
+        // visible while it happens.
+        var p23RecActive = false;
+        var p23RecWriter = null;
+        var p23RecFrameDur = 0;
+        var p23RecFrames = 0;
+        var p23RecStartMs = 0;
+        var p23RecTimer = null;
+
+        function p23RecFmtTime(ms) {
+            var s = Math.floor(ms / 1000);
+            var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+            function p2(n) { return (n < 10 ? '0' : '') + n; }
+            return ((h > 0) ? (h + ':') : '') + p2(m) + ':' + p2(r);
+        }
+
+        function p23RecBadge(show, ms) {
+            var b = Q('p23recBadge');
+            if (b) { b.style.display = show ? 'flex' : 'none'; }
+            if (show && ms != null) {
+                var t = Q('p23recTimer');
+                if (t) { t.textContent = p23RecFmtTime(ms); }
+            }
+        }
+
+        // Called by the agent-camera module once per painted frame. When
+        // not recording this is a single boolean check and a return.
+        function p23OnFramePainted(canvas, w, h) {
+            if (!p23RecActive || !p23RecWriter || !canvas) { return; }
+            try { p23RecWriter.addFrame(canvas, p23RecFrameDur); p23RecFrames++; }
+            catch (ex) {
+                // The writer is now broken (e.g. no WebP support -- in that
+                // case every frame throws); stop the session rather than
+                // throwing into the paint path frame after frame, and tell
+                // the operator what happened instead of failing silently.
+                p23RecStop(true, ex && ex.message ? ex.message : String(ex));
+            }
+        }
+
+        function p23RecStart() {
+            if (typeof WebMWriter !== 'function') {
+                p11setConsoleMsg('Video recording is not available in this browser (WebP support is required).', 6000);
+                return;
+            }
+            // Frames arrive at whatever cadence the device produces them;
+            // that cadence is the timeline of the recording, so one frame
+            // per nominal tick keeps a 15 fps camera reading as 15 fps in
+            // the player. Default to 15 fps if stats have not arrived yet.
+            var fps = (deskCam && deskCam.stats && deskCam.stats.fps) ? deskCam.stats.fps : 15;
+            p23RecFrameDur = Math.round(1000 / fps);
+
+            // Quality must stay below 1: at 1 Chrome emits a lossless WebP
+            // (VP8L chunk), and the muxer extracts a *VP8* payload from the
+            // "VP8 " chunk to write into its V_VP8 track -- a VP8L payload
+            // there would be an invalid track, so keep the lossy path at
+            // its default 0.95.
+            try {
+                p23RecWriter = new WebMWriter({ quality: 0.95, frameDuration: p23RecFrameDur });
+            } catch (ex) {
+                p11setConsoleMsg('Video recording failed to start: ' + (ex && ex.message ? ex.message : ex), 6000);
+                p23RecWriter = null;
+                return;
+            }
+
+            p23RecActive = true;
+            p23RecFrames = 0;
+            p23RecStartMs = Date.now();
+            p23RecTimer = setInterval(function () { p23RecBadge(true, Date.now() - p23RecStartMs); }, 500);
+
+            var btn = Q('p23rec');
+            if (btn) { btn.value = 'Stop Recording'; }
+            p23RecBadge(true, 0);
+            p11setConsoleMsg('Recording camera video...', 2500);
+        }
+
+        function p23RecStop(quiet, errText) {
+            var wasActive = p23RecActive;
+            p23RecActive = false;
+            if (p23RecTimer) { clearInterval(p23RecTimer); p23RecTimer = null; }
+            p23RecBadge(false, null);
+            var btn = Q('p23rec');
+            if (btn) { btn.value = 'Record'; }
+            if (!wasActive) { return; }
+
+            var writer = p23RecWriter;
+            p23RecWriter = null;
+            var frames = p23RecFrames;
+            p23RecFrames = 0;
+
+            if (!writer) { if (!quiet) { p11setConsoleMsg('Recording stopped.', 2500); } return; }
+
+            // No frames captured (e.g. stream dropped immediately): nothing
+            // to complete, and a zero-frame WebM would not play anywhere.
+            if (frames == 0) {
+                if (!quiet) { p11setConsoleMsg('Recording stopped -- no frames were captured (the stream must be live while recording).', 6000); }
+                return;
+            }
+
+            var name = 'camera-recording-' + (currentNode ? currentNode.name.replace(/[^A-Za-z0-9._-]/g, '_') : 'device');
+            function p2stamp(d) {
+                function p2(n) { return (n < 10 ? '0' : '') + n; }
+                return d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + '-' + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());
+            }
+            name += '-' + p2stamp(new Date());
+
+            writer.complete().then(function (blob) {
+                if (!blob) { if (!quiet) { p11setConsoleMsg('Recording saved.', 2500); } return; }
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = name + '.webm';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(function () { try { URL.revokeObjectURL(url); } catch (ex) { } }, 30000);
+                if (!quiet) { p11setConsoleMsg('Recording saved: ' + name + '.webm (' + frames + ' frames)', 5000); }
+            }).catch(function (ex) {
+                p11setConsoleMsg('Recording could not be finished: ' + (ex && ex.message ? ex.message : ex), 8000);
+            });
+        }
+
+        function p23RecToggle(event) {
+            if (event) { event.stopPropagation(); }
+            if (p23RecActive) { p23RecStop(false); return; }
+            if (!deskCam || deskCam.state != 'live') {
+                // No live stream means no frames to record; starting the
+                // camera here would hide the operator's intent (they asked
+                // for a video, not to flip the camera on) and would race
+                // the consent prompt.
+                p11setConsoleMsg('Start the camera first -- recording captures the live stream.', 5000);
+                return;
+            }
+            p23RecStart();
+        }
+
+        // ----- Full screen ---------------------------------------------------
+        // Matches the Desktop panel's full-screen semantics (deskToggleFull):
+        // plain click fills the window; shift-click also goes browser
+        // full screen. The panel already bounds its height (#p23main), so
+        // the same body-class approach works without extra layout work.
+        var p23Fullscreen = false, p23BrowserFullscreen = false;
+        function p23FullToggle(e) {
+            if (e && e.stopPropagation) { e.stopPropagation(); }
+            p23Fullscreen = !p23Fullscreen;
+            // The viewport is normally a fixed 16:9 box; in full screen it
+            // takes every available pixel, letterboxed by object-fit:contain.
+            var vs = Q('p23viewport');
+            if (vs) {
+                if (p23Fullscreen) {
+                    vs.style.aspectRatio = 'auto';
+                    vs.style.height = 'calc(100vh - 190px)';
+                } else {
+                    vs.style.aspectRatio = '';
+                    vs.style.height = '';
+                }
+            }
+            if (p23Fullscreen) {
+                QC('body').add('fulldesk');
+                // If shift is pressed, enter browser full screen.
+                if (e && (e.shiftKey == true)) { enterBrowserFullscreen(Q('body')); p23BrowserFullscreen = true; }
+            } else {
+                QC('body').remove('fulldesk');
+                if (p23BrowserFullscreen) { exitBrowserFullscreen(); p23BrowserFullscreen = false; }
+            }
+            // The viewport's parent scrolls the panel; keep it in view.
+            var main = Q('p23main');
+            if (main && p23Fullscreen) { main.scrollTop = 0; }
         }
 
         function p23QueryDevices() {
@@ -10624,6 +11013,13 @@
                         deskCam.onStateChanged = deskCamApplyState;
                         deskCam.onStats = p23StatsUpdate;
                         deskCam.onSnapshot = p23SnapshotReceived;
+                        // Each frame is fed to the WebM writer the moment it
+                        // is painted (only while recording is on -- otherwise
+                        // the callback is a no-op) so the video stays in
+                        // lockstep with what the operator sees. The panel
+                        // starts/stops recording via p23RecToggle(); the hook
+                        // itself is always installed.
+                        deskCam.onFramePainted = p23OnFramePainted;
                         deskCam.applySettings(camsettings); // seed the persisted/default profile before the first start()
                         desktop.m.onCamCaps = function(caps) { deskCam.onCaps(caps); p23UpdateStatus(); };
                         desktop.m.onCamData = function(frame) { deskCam.onData(frame); };
@@ -21192,6 +21588,9 @@
 
             // Get out of fullscreen if needed
             if (fullscreen) { deskToggleFull(); }
+            // Same for the Camera panel's full screen, which shares the
+            // body class with the desktop's.
+            if ((xxcurrentView == 23) && p23Fullscreen) { p23FullToggle(); }
 
             // Change the URL
             if (((features & 0x10000000) == 0) && (xxcurrentView > 0)) {

@@ -48,8 +48,21 @@ var CreateAgentCamera = function (desktop) {
     obj.onStats = null;         // function (stats)
     obj.onSnapshot = null;      // function (snapshot)
     obj.onDeviceListChanged = null; // function (devices)
+    // Fired once per successfully painted frame (i.e. AFTER the canvas has
+    // been redrawn with this frame). The panel uses this to drive its
+    // WebM video writer: it hands the display canvas (exposed as
+    // obj.canvas) to WebMWriter.addFrame(), so the video is always
+    // in lockstep with what the operator sees -- no duplicate or dropped
+    // frames, no extra repaint pipeline.
+    obj.onFramePainted = null;   // function (canvas, width, height)
 
     obj.stats = { frames: 0, bytes: 0, fps: 0, kbps: 0, width: 0, height: 0, passthrough: false };
+
+    // The canvas is exposed (not just configured) because the UI needs to
+    // reach into it -- for example, to hand it to the WebM writer when
+    // recording the live stream. The panel never has to know the internal
+    // name or re-query the DOM.
+    obj.canvas = null;
 
     var canvas = null, ctx = null;
     var consentTimer = null, retryTimer = null, statsTimer = null;
@@ -65,6 +78,7 @@ var CreateAgentCamera = function (desktop) {
 
     obj.setCanvas = function (el) {
         canvas = el;
+        obj.canvas = el;
         ctx = (canvas != null) ? canvas.getContext('2d') : null;
     };
 
@@ -231,6 +245,13 @@ var CreateAgentCamera = function (desktop) {
         obj.stats.width = w;
         obj.stats.height = h;
         try { ctx.drawImage(src, 0, 0, w, h); } catch (ex) { }
+        // Tell the panel the canvas now holds this frame. The panel
+        // hands it to the WebM writer (if recording) -- the writer reads
+        // the canvas synchronously, so the video is always in lockstep
+        // with what the operator sees.
+        if (obj.onFramePainted) {
+            try { obj.onFramePainted(canvas, w, h); } catch (ex) { console.log(ex); }
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -310,6 +331,11 @@ var CreateAgentCamera = function (desktop) {
      * is re-encoded here in the browser via canvas, so the managed device
      * never spends CPU producing alternative formats and no extra image
      * library has to be shipped to the agent.
+     *
+     * 'quality' is the re-encode quality 0..1 (1 for lossless webp). The
+     * default of 0.92 is a reasonable compromise; the panel now exposes
+     * it so an operator can drop a 1080p photo from 1.5 MB to ~500 KB
+     * in one click without leaving the camera tab.
      */
     obj.saveSnapshot = function (snap, formatId, filenameBase, quality) {
         snap = snap || obj.lastSnapshot;

@@ -1565,6 +1565,39 @@ NoMeshesPanel img {
     overflow-y: auto;
 }
 
+/* Camera panel full screen (p23FullToggle): the body gets .fulldesk, which
+ * hides the chrome and gives #column_l the whole window -- reuse that
+ * layout instead of a parallel one. The panel's own scroll region becomes
+ * the full window. #column_l is painted dark blue by .fulldesk, so the
+ * panel body keeps the app's light background for readable text over it. */
+.fulldesk #p23main {
+    max-height: 100vh;
+    height: 100vh;
+}
+.fulldesk #p23body {
+    background-color: #fff;
+    margin: 10px;
+    border-radius: 6px;
+}
+
+/* Camera panel photo strip: thumbnails are full-resolution images, so cap
+ * their height and make the row a consistent, clickable filmstrip. The
+ * active photo (the one Save Photo will write) is outlined. */
+.p23photo {
+    height: 64px;
+    width: auto;
+    max-width: 100%;
+    object-fit: contain;
+    border: 2px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    flex: 0 0 auto;
+    background: #101010;
+}
+.p23photo-active {
+    border-color: #e53935;
+}
+
 .p3usersTable {
     width: 100%;
     border-spacing: 0;
