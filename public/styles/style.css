@@ -4174,6 +4174,243 @@ a {
     #DeskCamButton.micRequesting .desktopButtons { animation: none; opacity: 0.6; }
 }
 
+/* --- Mobile-first responsive audio/camera tabs (p22, p23) --- */
+/* Both tabs now follow responsive design: single-column on mobile,
+   collapsible settings (accordion), touch-friendly controls (44px+ targets),
+   ARIA labels, and viewport-aware video scaling. Light+night modes included. */
+
+#p22main, #p23main {
+    max-height: calc(100vh - 135px);
+    overflow-y: auto;
+    /* Mobile: single column. Desktop: side-by-side via flex-wrap */
+    padding: 0 max(12px, env(safe-area-inset-left));
+}
+
+#p22title, #p23title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+#p22title h1, #p23title h1 {
+    flex: 1;
+    font-size: 20px;
+    margin: 0;
+}
+
+/* Settings container: collapse/expand on mobile */
+.mic-settings, .cam-settings {
+    margin-top: 16px;
+    border: 1px solid rgba(128,128,128,0.35);
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(128,128,128,0.04);
+}
+
+.settings-header {
+    padding: 12px 14px;
+    background: rgba(128,128,128,0.08);
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+    gap: 8px;
+}
+
+.settings-header::after {
+    content: '▼';
+    transform: rotate(-90deg);
+    transition: transform 0.2s ease;
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    font-size: 12px;
+}
+
+.settings-header[aria-expanded="true"]::after {
+    transform: rotate(0deg);
+}
+
+.settings-content {
+    padding: 14px;
+    display: none;
+}
+
+.settings-header[aria-expanded="true"] + .settings-content {
+    display: block;
+}
+
+.night .settings-header { background: rgba(255,255,255,0.08); }
+.night .mic-settings, .night .cam-settings {
+    border-color: rgba(160,160,160,0.3);
+    background: rgba(255,255,255,0.03);
+}
+
+/* Touch-friendly controls (44px minimum tap target) */
+#p22toolbar, #p23toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+#p22toolbar input[type=button],
+#p23toolbar input[type=button],
+#p23mtoolbar input[type=button] {
+    min-height: 44px;
+    padding: 10px 16px;
+    font-size: 14px;
+    flex: 1 1 auto;
+    min-width: 120px;
+}
+
+/* Input fields: mobile-optimized */
+#p22settings select, #p22settings input[type=number],
+#p23device, #p23preset, #p23resolution, #p23fps, #p23quality,
+#p23photores, #p23photoquality,
+#p23snapformat {
+    min-height: 40px;
+    font-size: 16px;  /* Prevents zoom on iOS input focus */
+    padding: 8px 10px;
+    box-sizing: border-box;
+    width: 100%;
+}
+
+/* Ranges (quality sliders): mobile-friendly thumb size */
+input[type=range] {
+    min-height: 44px;
+    cursor: pointer;
+    accent-color: #003366;
+}
+
+/* Status bar wraps on narrow screens */
+#p22statusText, #p23statusBar {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Camera feed viewport: responsive */
+#p23viewport {
+    max-height: 60vh;  /* Mobile-friendly height; fullscreen overrides */
+}
+
+/* Photo strip scrolls on mobile */
+#p23photoroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;  /* Smooth momentum scroll on iOS */
+}
+
+/* Mic level bar responsive */
+#p22levelwrap {
+    max-width: 100%;
+    width: 100%;
+}
+
+/* Mobile-first: settings start COLLAPSED by default (aria-expanded=false) */
+.settings-content {
+    display: none !important;
+}
+
+.settings-header[aria-expanded="true"] + .settings-content {
+    display: block !important;
+}
+
+/* On small screens (mobile), collapse two-column to single column */
+@media (max-width: 768px) {
+    #p23twoCol {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    #p23left, #p23right {
+        flex: 1 1 100% !important;
+        min-width: 100% !important;
+        max-width: none !important;
+    }
+
+    #p22body, #p23body {
+        max-width: 100%;
+    }
+
+    #p22settings, #p23settings, #p23photosec {
+        margin-top: 12px;
+    }
+
+    /* Stack settings vertically on mobile */
+    #p22advanced > label,
+    #p23advanced > div {
+        margin-bottom: 10px;
+    }
+
+    /* Full-width selects on mobile */
+    #p22device, #p22preset,
+    #p23device, #p23preset {
+        width: 100%;
+    }
+}
+
+/* Tablet and up: expand two-column side-by-side */
+@media (min-width: 769px) {
+    #p23twoCol {
+        display: flex;
+        flex-direction: row;
+        gap: 16px;
+        align-items: flex-start;
+    }
+
+    #p23left {
+        flex: 1 1 380px;
+        min-width: 300px;
+    }
+
+    #p23right {
+        flex: 0 0 260px;
+        min-width: 220px;
+        max-width: 320px;
+    }
+
+    .settings-header {
+        cursor: default;  /* No toggle on desktop — settings always visible */
+    }
+
+    .settings-header::after {
+        display: none;
+    }
+
+    .settings-content {
+        display: block !important;
+    }
+
+    #p22main, #p23main {
+        max-width: 800px;
+    }
+}
+
+/* Dark mode: settings */
+.night .settings-content {
+    border-top: 1px solid rgba(160,160,160,0.2);
+}
+
+/* Accessibility: focus visible for keyboard nav */
+.settings-header:focus-visible {
+    outline: 2px solid #1e6fd0;
+    outline-offset: 2px;
+}
+
+#p22toolbar input:focus-visible,
+#p23toolbar input:focus-visible,
+#p23mtoolbar input:focus-visible {
+    outline: 2px solid #1e6fd0;
+    outline-offset: 2px;
+}
+
 
 .dtab {
     overflow: hidden;

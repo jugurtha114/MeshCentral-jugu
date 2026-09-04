@@ -1176,73 +1176,106 @@
                         <div id="p22BackButton" style="float:left"><div class="backButton" tabindex=0 onclick=goBack() title="Back" onkeypress="if (event.key == 'Enter') goBack()"><div class="backButtonEx"></div></div></div>
                         <h1>Mic<span id=p22deviceName></span></h1>
                     </div>
-                    <div id=p22body style="max-width:480px">
+                    <div id=p22body>
                         <div id=p22info style="font-size:12px;color:gray;margin-bottom:8px"></div>
                         <div id=p22statusText style="font-size:14px;margin-bottom:8px"></div>
-                        <div id=p22levelwrap style="display:none;margin-bottom:8px;max-width:300px;height:8px;border-radius:3px;overflow:hidden;background:rgba(128,128,128,0.25)">
+                        <div id=p22levelwrap style="display:none;margin-bottom:8px;height:8px;border-radius:3px;overflow:hidden;background:rgba(128,128,128,0.25)">
                             <div id=p22level style="width:0;height:100%;background:#43a047;transition:width 90ms ease-out"></div>
                         </div>
-                        <input type=button id=p22startstop value="Start Listening" onclick=p22Toggle(event) />
+                        <div id=p22toolbar>
+                            <input type=button id=p22startstop value="Start Listening" onclick=p22Toggle(event) aria-label="Start or stop listening to microphone" />
+                        </div>
 
                         <div id="p22unsupportedNotice" class="warningbox" style="display:none;margin-top:12px">This device's agent does not support custom microphone profiles yet -- it will use its default settings.</div>
 
-                        <div id=p22settings style="margin-top:16px">
-                            <div style="font-weight:bold;margin-bottom:4px">Input Device</div>
-                            <div style="display:flex;align-items:center">
-                                <select id=p22device onchange=p22DeviceChanged() style="flex:1;max-width:300px">
-                                    <option value="-1">System Default</option>
-                                </select>
-                                <span id=p22deviceRefresh title="Refresh device list" onclick=p22QueryDevices() onkeypress="if (event.key == 'Enter') p22QueryDevices()" tabindex=0 style="cursor:pointer;margin-left:6px;font-size:16px">&#8635;</span>
+                        <!-- Mic settings: collapsible accordion on mobile, always visible on desktop -->
+                        <div class="mic-settings">
+                            <div class="settings-header" onclick=p22SettingsToggle(event) aria-expanded="false" aria-controls="p22settingscontent" tabindex=0 onkeypress="if (event.key == 'Enter') p22SettingsToggle(event)">
+                                Settings
                             </div>
+                            <div class="settings-content" id="p22settingscontent">
+                                <div style="margin-bottom:14px">
+                                    <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p22device">Input Device</label>
+                                    <div style="display:flex;align-items:center">
+                                        <select id=p22device onchange=p22DeviceChanged() aria-label="Select input device">
+                                            <option value="-1">System Default</option>
+                                        </select>
+                                        <span id=p22deviceRefresh title="Refresh device list" onclick=p22QueryDevices() onkeypress="if (event.key == 'Enter') p22QueryDevices()" tabindex=0 style="cursor:pointer;margin-left:6px;font-size:16px" aria-label="Refresh device list">&#8635;</span>
+                                    </div>
+                                </div>
 
-                            <div style="font-weight:bold;margin:14px 0 4px">Profile</div>
-                            <select id=p22preset onchange=micSettingsPresetChanged() style="max-width:300px">
-                                <option value="balanced">Balanced (Default)</option>
-                                <option value="lowbandwidth">Low Bandwidth</option>
-                                <option value="highfidelity">High Fidelity</option>
-                                <option value="lowlatency">Low Latency</option>
-                                <option value="custom">Custom</option>
-                            </select>
+                                <div style="margin-bottom:14px">
+                                    <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p22preset">Profile</label>
+                                    <select id=p22preset onchange=micSettingsPresetChanged() aria-label="Select audio profile">
+                                        <option value="balanced">Balanced (Default)</option>
+                                        <option value="lowbandwidth">Low Bandwidth</option>
+                                        <option value="highfidelity">High Fidelity</option>
+                                        <option value="lowlatency">Low Latency</option>
+                                        <option value="custom">Custom</option>
+                                    </select>
+                                </div>
 
-                            <div style="font-weight:bold;margin:14px 0 4px">Advanced</div>
-                            <div id="p22advanced">
-                                <label style="display:block">Bitrate (kbps)<br /><input type="number" id="p22bitrate" min="6" max="255" style="width:70px" onchange=p22AdvancedChanged() /></label>
-                                <label style="display:block">Application<br />
-                                    <select id="p22application" onchange=p22AdvancedChanged()>
-                                        <option value="0">Voice (VOIP)</option>
-                                        <option value="1">Music (Audio)</option>
-                                        <option value="2">Lowest Delay</option>
-                                    </select>
-                                </label>
-                                <label style="display:block">Bitrate Mode<br />
-                                    <select id="p22vbrmode" onchange=p22AdvancedChanged()>
-                                        <option value="cbr">Constant (CBR)</option>
-                                        <option value="vbr">Variable (VBR)</option>
-                                        <option value="cvbr">Constrained VBR</option>
-                                    </select>
-                                </label>
-                                <label style="display:block">Bandwidth<br />
-                                    <select id="p22bandwidth" onchange=p22AdvancedChanged()>
-                                        <option value="0">Auto</option>
-                                        <option value="1">Narrowband (4 kHz)</option>
-                                        <option value="2">Mediumband (6 kHz)</option>
-                                        <option value="3">Wideband (8 kHz)</option>
-                                        <option value="4">Super-wideband (12 kHz)</option>
-                                        <option value="5">Fullband (20 kHz)</option>
-                                    </select>
-                                </label>
-                                <label style="display:block">Frame Size<br />
-                                    <select id="p22framesize" onchange=p22AdvancedChanged()>
-                                        <option value="10">10 ms</option>
-                                        <option value="20">20 ms</option>
-                                        <option value="40">40 ms</option>
-                                        <option value="60">60 ms</option>
-                                    </select>
-                                </label>
-                                <label style="display:block">Complexity (0-10)<br /><input type="number" id="p22complexity" min="0" max="10" style="width:50px" onchange=p22AdvancedChanged() /></label>
-                                <label style="display:block"><input type="checkbox" id="p22dtx" onchange=p22AdvancedChanged() />Discontinuous Transmission (DTX) -- saves bandwidth during silence</label>
-                                <label style="display:block"><input type="checkbox" id="p22fec" onchange=p22AdvancedChanged() />Forward Error Correction (FEC) -- more robust on lossy links</label>
-                                <label style="display:block">Expected Packet Loss (%)<br /><input type="number" id="p22losspct" min="0" max="100" style="width:50px" onchange=p22AdvancedChanged() /></label>
+                                <div>
+                                    <label style="display:block;font-size:12px;color:gray;margin-bottom:8px">Advanced Settings</label>
+                                    <div id="p22advanced">
+                                        <div style="margin-bottom:10px">
+                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22bitrate">Bitrate (kbps)</label>
+                                            <input type="number" id="p22bitrate" min="6" max="255" onchange=p22AdvancedChanged() aria-label="Set bitrate in kilobits per second" />
+                                        </div>
+                                        <div style="margin-bottom:10px">
+                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22application">Application</label>
+                                            <select id="p22application" onchange=p22AdvancedChanged() aria-label="Select application type">
+                                                <option value="0">Voice (VOIP)</option>
+                                                <option value="1">Music (Audio)</option>
+                                                <option value="2">Lowest Delay</option>
+                                            </select>
+                                        </div>
+                                        <div style="margin-bottom:10px">
+                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22vbrmode">Bitrate Mode</label>
+                                            <select id="p22vbrmode" onchange=p22AdvancedChanged() aria-label="Select bitrate mode">
+                                                <option value="cbr">Constant (CBR)</option>
+                                                <option value="vbr">Variable (VBR)</option>
+                                                <option value="cvbr">Constrained VBR</option>
+                                            </select>
+                                        </div>
+                                        <div style="margin-bottom:10px">
+                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22bandwidth">Bandwidth</label>
+                                            <select id="p22bandwidth" onchange=p22AdvancedChanged() aria-label="Select bandwidth mode">
+                                                <option value="0">Auto</option>
+                                                <option value="1">Narrowband (4 kHz)</option>
+                                                <option value="2">Mediumband (6 kHz)</option>
+                                                <option value="3">Wideband (8 kHz)</option>
+                                                <option value="4">Super-wideband (12 kHz)</option>
+                                                <option value="5">Fullband (20 kHz)</option>
+                                            </select>
+                                        </div>
+                                        <div style="margin-bottom:10px">
+                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22framesize">Frame Size</label>
+                                            <select id="p22framesize" onchange=p22AdvancedChanged() aria-label="Select frame size">
+                                                <option value="10">10 ms</option>
+                                                <option value="20">20 ms</option>
+                                                <option value="40">40 ms</option>
+                                                <option value="60">60 ms</option>
+                                            </select>
+                                        </div>
+                                        <div style="margin-bottom:10px">
+                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22complexity">Complexity (0-10)</label>
+                                            <input type="number" id="p22complexity" min="0" max="10" onchange=p22AdvancedChanged() aria-label="Set compression complexity level" />
+                                        </div>
+                                        <label style="display:block;margin-bottom:8px">
+                                            <input type="checkbox" id="p22dtx" onchange=p22AdvancedChanged() aria-label="Enable discontinuous transmission to save bandwidth during silence" />
+                                            Discontinuous Transmission (DTX)
+                                        </label>
+                                        <label style="display:block;margin-bottom:8px">
+                                            <input type="checkbox" id="p22fec" onchange=p22AdvancedChanged() aria-label="Enable forward error correction for robust transmission on lossy links" />
+                                            Forward Error Correction (FEC)
+                                        </label>
+                                        <div style="margin-bottom:10px">
+                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22losspct">Expected Packet Loss (%)</label>
+                                            <input type="number" id="p22losspct" min="0" max="100" onchange=p22AdvancedChanged() aria-label="Set expected packet loss percentage" />
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1254,7 +1287,7 @@
                         <div id="p23BackButton" style="float:left"><div class="backButton" tabindex=0 onclick=goBack() title="Back" onkeypress="if (event.key == 'Enter') goBack()"><div class="backButtonEx"></div></div></div>
                         <h1>Camera<span id=p23deviceName></span></h1>
                         <div id="p23titleRight" style="float:right;margin-top:12px">
-                            <div class="viewSelector" onclick=p23FullToggle(event) title="Full Screen. Hold shift for browser full screen." tabindex=0 onkeypress="if (event.key == 'Enter') p23FullToggle(event)"><div class="viewSelector5"></div></div>
+                            <div class="viewSelector" onclick=p23FullToggle(event) title="Full Screen. Hold shift for browser full screen." tabindex=0 onkeypress="if (event.key == 'Enter') p23FullToggle(event)" aria-label="Enter fullscreen mode"><div class="viewSelector5"></div></div>
                         </div>
                     </div>
                     <div id=p23body>
@@ -1264,8 +1297,8 @@
                             <span id=p23info style="font-size:12px;color:gray;margin-left:auto"></span>
                         </div>
 
-                        <div id="p23twoCol" style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
-                            <div id="p23left" style="flex:1 1 380px;min-width:300px">
+                        <div id="p23twoCol">
+                            <div id="p23left">
                                 <div id=p23viewport style="position:relative;width:100%;background:#101010;border-radius:6px;overflow:hidden;aspect-ratio:16/9">
                                     <canvas id=p23canvas style="display:block;width:100%;height:100%;object-fit:contain"></canvas>
                                     <div id=p23placeholder style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#888;font-size:13px;text-align:center;padding:8px">The camera is not running.</div>
@@ -1281,12 +1314,12 @@
                                 </div>
                                 <div id=p23stats style="font-size:12px;color:gray;margin:8px 0 12px;min-height:15px"></div>
 
-                                <div id=p23toolbar style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-                                    <input type=button id=p23startstop value="Start Camera" onclick=p23Toggle(event) style="min-width:120px" />
-                                    <input type=button id=p23snap value="Take Photo" onclick=p23Snapshot(event) title="Capture one still -- this never starts the live stream" />
-                                    <input type=button id=p23rec value="Record" onclick=p23RecToggle(event) title="Record the live stream to a WebM video file" />
+                                <div id=p23toolbar>
+                                    <input type=button id=p23startstop value="Start Camera" onclick=p23Toggle(event) aria-label="Start or stop the camera" />
+                                    <input type=button id=p23snap value="Take Photo" onclick=p23Snapshot(event) title="Capture one still -- this never starts the live stream" aria-label="Capture a still photograph" />
+                                    <input type=button id=p23rec value="Record" onclick=p23RecToggle(event) title="Record the live stream to a WebM video file" aria-label="Start or stop video recording" />
                                     <span style="width:1px;align-self:stretch;background:rgba(128,128,128,0.35);margin:0 2px"></span>
-                                    <input type=button id=p23micshortcut value="Start Mic" onclick=p23MicShortcutToggle(event) title="Listen to this device's microphone without leaving the Camera tab" />
+                                    <input type=button id=p23micshortcut value="Start Mic" onclick=p23MicShortcutToggle(event) title="Listen to this device's microphone without leaving the Camera tab" aria-label="Start or stop microphone in this tab" />
                                 </div>
 
                                 <div id="p23unsupportedNotice" class="warningbox" style="display:none;margin-top:12px">This device's agent does not support camera settings yet -- it will use its default settings.</div>
@@ -1296,97 +1329,113 @@
                                     <div id="p23photoroll" style="display:flex;gap:8px;overflow-x:auto;padding:4px 2px 8px 2px"></div>
                                     <table id=p23snapmeta style="font-size:12px;color:gray;border-collapse:collapse;width:100%;margin-top:8px"></table>
                                     <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-                                        <input type=button id=p23snapsave value="Save Photo" onclick=p23SaveSnapshot(event) title="Save the selected photo in the format and quality chosen in Photo Settings" />
-                                        <input type=button id=p23snapclear value="Clear" onclick=p23ClearPhotos(event) style="margin-left:auto" title="Forget all photos taken in this session" />
+                                        <input type=button id=p23snapsave value="Save Photo" onclick=p23SaveSnapshot(event) title="Save the selected photo in the format and quality chosen in Photo Settings" aria-label="Save the selected photo" />
+                                        <input type=button id=p23snapclear value="Clear" onclick=p23ClearPhotos(event) style="margin-left:auto" title="Forget all photos taken in this session" aria-label="Clear all photos" />
                                     </div>
                                     <div id=p23snapformatnote style="font-size:11px;color:gray;margin-top:8px"></div>
                                 </div>
                             </div>
 
-                            <div id="p23right" style="flex:0 0 260px;min-width:220px;max-width:320px">
-                                <div id=p23settings style="padding:14px;border:1px solid rgba(128,128,128,0.35);border-radius:6px;background:rgba(128,128,128,0.04)">
-                                    <div style="font-weight:bold;margin-bottom:10px;font-size:13px;color:#444">Camera Settings</div>
-                                    <div style="margin-bottom:12px">
-                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Device</label>
-                                        <div style="display:flex;align-items:center">
-                                            <select id=p23device onchange=p23DeviceChanged() style="flex:1">
-                                                <option value="-1">System Default</option>
-                                            </select>
-                                            <span id=p23deviceRefresh title="Refresh camera list" onclick=p23QueryDevices() onkeypress="if (event.key == 'Enter') p23QueryDevices()" tabindex=0 style="cursor:pointer;margin-left:6px;font-size:16px">&#8635;</span>
+                            <div id="p23right">
+                                <!-- Camera settings: collapsible on mobile, expanded on desktop -->
+                                <div class="cam-settings">
+                                    <div class="settings-header" onclick=p23SettingsToggle(event) aria-expanded="false" aria-controls="p23settingscontent" tabindex=0 onkeypress="if (event.key == 'Enter') p23SettingsToggle(event)">
+                                        Camera Settings
+                                    </div>
+                                    <div class="settings-content" id="p23settingscontent">
+                                        <div style="margin-bottom:12px">
+                                            <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p23device">Device</label>
+                                            <div style="display:flex;align-items:center">
+                                                <select id=p23device onchange=p23DeviceChanged() aria-label="Select camera device">
+                                                    <option value="-1">System Default</option>
+                                                </select>
+                                                <span id=p23deviceRefresh title="Refresh camera list" onclick=p23QueryDevices() onkeypress="if (event.key == 'Enter') p23QueryDevices()" tabindex=0 style="cursor:pointer;margin-left:6px;font-size:16px" aria-label="Refresh camera list">&#8635;</span>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div style="margin-bottom:12px">
-                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Profile</label>
-                                        <select id=p23preset onchange=camSettingsPresetChanged() style="width:100%">
-                                            <option value="balanced">Balanced (Default)</option>
-                                            <option value="lowbandwidth">Low Bandwidth</option>
-                                            <option value="highquality">High Quality</option>
-                                            <option value="smooth">Smooth Motion</option>
-                                            <option value="custom">Custom</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Advanced</label>
-                                        <div id="p23advanced">
-                                            <div style="margin-bottom:10px">
-                                                <label style="display:block;font-size:12px;margin-bottom:3px">Resolution</label>
-                                                <select id="p23resolution" onchange=p23AdvancedChanged() style="width:100%">
-                                                    <option value="0x0">Camera Default</option>
-                                                    <option value="320x240">320 x 240 (QVGA)</option>
-                                                    <option value="640x480">640 x 480 (VGA)</option>
-                                                    <option value="800x600">800 x 600 (SVGA)</option>
-                                                    <option value="1280x720">1280 x 720 (720p)</option>
-                                                    <option value="1920x1080">1920 x 1080 (1080p)</option>
-                                                </select>
-                                            </div>
-                                            <div style="display:flex;gap:10px;margin-bottom:10px">
-                                                <div style="flex:1">
-                                                    <label style="display:block;font-size:12px;margin-bottom:3px">FPS</label>
-                                                    <input type="number" id="p23fps" min="1" max="60" style="width:100%" onchange=p23AdvancedChanged() />
+                                        <div style="margin-bottom:12px">
+                                            <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p23preset">Profile</label>
+                                            <select id=p23preset onchange=camSettingsPresetChanged() aria-label="Select camera profile">
+                                                <option value="balanced">Balanced (Default)</option>
+                                                <option value="lowbandwidth">Low Bandwidth</option>
+                                                <option value="highquality">High Quality</option>
+                                                <option value="smooth">Smooth Motion</option>
+                                                <option value="custom">Custom</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="display:block;font-size:12px;color:gray;margin-bottom:8px">Advanced Settings</label>
+                                            <div id="p23advanced">
+                                                <div style="margin-bottom:10px">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px" for="p23resolution">Resolution</label>
+                                                    <select id="p23resolution" onchange=p23AdvancedChanged() aria-label="Select camera resolution">
+                                                        <option value="0x0">Camera Default</option>
+                                                        <option value="320x240">320 x 240 (QVGA)</option>
+                                                        <option value="640x480">640 x 480 (VGA)</option>
+                                                        <option value="800x600">800 x 600 (SVGA)</option>
+                                                        <option value="1280x720">1280 x 720 (720p)</option>
+                                                        <option value="1920x1080">1920 x 1080 (1080p)</option>
+                                                    </select>
                                                 </div>
-                                                <div style="flex:1">
-                                                    <label style="display:block;font-size:12px;margin-bottom:3px">Quality (1-100)</label>
-                                                    <input type="number" id="p23quality" min="1" max="100" style="width:100%" onchange=p23AdvancedChanged() />
+                                                <div style="display:flex;gap:10px;margin-bottom:10px">
+                                                    <div style="flex:1">
+                                                        <label style="display:block;font-size:12px;margin-bottom:3px" for="p23fps">FPS</label>
+                                                        <input type="number" id="p23fps" min="1" max="60" onchange=p23AdvancedChanged() aria-label="Set frames per second" />
+                                                    </div>
+                                                    <div style="flex:1">
+                                                        <label style="display:block;font-size:12px;margin-bottom:3px" for="p23quality">Quality (1-100)</label>
+                                                        <input type="number" id="p23quality" min="1" max="100" onchange=p23AdvancedChanged() aria-label="Set image quality" />
+                                                    </div>
                                                 </div>
+                                                <div style="font-size:11px;color:gray;margin-bottom:10px">Quality is used only when the camera cannot produce JPEG itself.</div>
+                                                <label style="display:block;margin-bottom:8px">
+                                                    <input type="checkbox" id="p23suppress" onchange=p23AdvancedChanged() aria-label="Skip unchanged frames to reduce bandwidth" />
+                                                    Skip unchanged frames
+                                                </label>
+                                                <div style="margin-bottom:10px">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px" for="p23threshold">Motion Sensitivity</label>
+                                                    <select id="p23threshold" onchange=p23AdvancedChanged() aria-label="Select motion sensitivity level">
+                                                        <option value="1">Highest</option>
+                                                        <option value="3">High</option>
+                                                        <option value="6">Medium</option>
+                                                        <option value="12">Low</option>
+                                                    </select>
+                                                </div>
+                                                <label style="display:block;margin-bottom:8px">
+                                                    <input type="checkbox" id="p23forceraw" onchange=p23AdvancedChanged() aria-label="Force device to re-encode frames" />
+                                                    Re-encode on device
+                                                </label>
+                                                <div style="font-size:11px;color:gray">Forces the device to re-compress frames. Use only if the camera's built-in JPEG looks wrong.</div>
                                             </div>
-                                            <div style="font-size:11px;color:gray;margin-bottom:10px">Quality is used only when the camera cannot produce JPEG itself.</div>
-                                            <label style="display:block;margin-bottom:8px;font-size:13px"><input type="checkbox" id="p23suppress" onchange=p23AdvancedChanged() style="margin-right:6px" />Skip unchanged frames</label>
-                                            <div style="margin-bottom:10px">
-                                                <label style="display:block;font-size:12px;margin-bottom:3px">Motion Sensitivity</label>
-                                                <select id="p23threshold" onchange=p23AdvancedChanged() style="width:100%">
-                                                    <option value="1">Highest</option>
-                                                    <option value="3">High</option>
-                                                    <option value="6">Medium</option>
-                                                    <option value="12">Low</option>
-                                                </select>
-                                            </div>
-                                            <label style="display:block;margin-bottom:4px;font-size:13px"><input type="checkbox" id="p23forceraw" onchange=p23AdvancedChanged() style="margin-right:6px" />Re-encode on device</label>
-                                            <div style="font-size:11px;color:gray">Forces the device to re-compress frames. Use only if the camera's built-in JPEG looks wrong.</div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div id="p23photosec" style="margin-top:12px;padding:14px;border:1px solid rgba(128,128,128,0.35);border-radius:6px;background:rgba(128,128,128,0.04)">
-                                    <div style="font-weight:bold;margin-bottom:10px;font-size:13px;color:#444">Photo Settings</div>
-                                    <div style="margin-bottom:12px">
-                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Save As</label>
-                                        <select id=p23snapformat style="width:100%" onchange=p23PhotoSettingsChanged()></select>
+                                <!-- Photo settings: collapsible on mobile, expanded on desktop -->
+                                <div class="cam-settings" style="margin-top:12px">
+                                    <div class="settings-header" onclick=p23PhotoSettingsToggle(event) aria-expanded="false" aria-controls="p23photosettingscontent" tabindex=0 onkeypress="if (event.key == 'Enter') p23PhotoSettingsToggle(event)">
+                                        Photo Settings
                                     </div>
-                                    <div style="margin-bottom:12px">
-                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Capture Resolution</label>
-                                        <select id="p23photores" onchange=p23PhotoSettingsChanged() style="width:100%">
-                                            <option value="0x0">Camera Native (max quality)</option>
-                                            <option value="640x480">640 x 480 (VGA)</option>
-                                            <option value="1280x720">1280 x 720 (720p)</option>
-                                            <option value="1920x1080">1920 x 1080 (1080p)</option>
-                                            <option value="2560x1440">2560 x 1440 (1440p)</option>
-                                            <option value="3840x2160">3840 x 2160 (4K)</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style="display:block;font-size:12px;color:gray;margin-bottom:4px">Save Quality</label>
-                                        <input type="range" id="p23photoquality" min="10" max="100" step="5" value="90" style="width:100%" oninput=p23PhotoQualitySlider() onchange=p23PhotoSettingsChanged() />
-                                        <div style="font-size:11px;color:gray;margin-top:2px" id="p23photoqualityLabel">90%</div>
+                                    <div class="settings-content" id="p23photosettingscontent">
+                                        <div style="margin-bottom:12px">
+                                            <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p23snapformat">Save As</label>
+                                            <select id=p23snapformat onchange=p23PhotoSettingsChanged() aria-label="Select photo file format"></select>
+                                        </div>
+                                        <div style="margin-bottom:12px">
+                                            <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p23photores">Capture Resolution</label>
+                                            <select id="p23photores" onchange=p23PhotoSettingsChanged() aria-label="Select photo capture resolution">
+                                                <option value="0x0">Camera Native (max quality)</option>
+                                                <option value="640x480">640 x 480 (VGA)</option>
+                                                <option value="1280x720">1280 x 720 (720p)</option>
+                                                <option value="1920x1080">1920 x 1080 (1080p)</option>
+                                                <option value="2560x1440">2560 x 1440 (1440p)</option>
+                                                <option value="3840x2160">3840 x 2160 (4K)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p23photoquality">Save Quality</label>
+                                            <input type="range" id="p23photoquality" min="10" max="100" step="5" value="90" oninput=p23PhotoQualitySlider() onchange=p23PhotoSettingsChanged() aria-label="Adjust photo save quality" />
+                                            <div style="font-size:11px;color:gray;margin-top:2px" id="p23photoqualityLabel">90%</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -9284,6 +9333,33 @@
             putstore('micsettings', JSON.stringify(micsettings));
 
             if (deskMic) { deskMic.applySettings(micsettings); }
+        }
+
+        // Accordion toggle for mic settings (p22)
+        function p22SettingsToggle(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var header = event.currentTarget;
+            var isExpanded = header.getAttribute('aria-expanded') === 'true';
+            header.setAttribute('aria-expanded', !isExpanded);
+        }
+
+        // Accordion toggle for camera settings (p23)
+        function p23SettingsToggle(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var header = event.currentTarget;
+            var isExpanded = header.getAttribute('aria-expanded') === 'true';
+            header.setAttribute('aria-expanded', !isExpanded);
+        }
+
+        // Accordion toggle for photo settings (p23)
+        function p23PhotoSettingsToggle(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var header = event.currentTarget;
+            var isExpanded = header.getAttribute('aria-expanded') === 'true';
+            header.setAttribute('aria-expanded', !isExpanded);
         }
 
         // ===================================================================
