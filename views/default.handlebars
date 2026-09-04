@@ -9213,7 +9213,25 @@
                     break;
                 case 'unavailable':
                     btn.value = 'Start Listening';
-                    Q('p22statusText').textContent = (desktop && desktop.State == 3) ? 'This device has no usable microphone.' : 'Not connected.';
+                    if (desktop && desktop.State == 3) {
+                        // "Unavailable" collapses two very different causes: the
+                        // remote device genuinely has no mic (caps.captureAvailable
+                        // false), or this browser can't decode the audio it sends
+                        // (agent-mic-0.1.0.js requires WebCodecs AudioDecoder, which
+                        // Safari/iOS browsers do not implement -- every iOS browser
+                        // is WebKit under Apple's policy, so this affects all of
+                        // them, not just Safari by name). Checked directly here
+                        // rather than threaded through onStateChanged's detail
+                        // argument, since that path dedupes by state and the
+                        // module's own default initial state is already
+                        // 'unavailable' -- the very first real transition could
+                        // land on the same state and never fire the callback.
+                        Q('p22statusText').textContent = (typeof AudioDecoder === 'undefined')
+                            ? "Your browser can't play this device's microphone audio -- try a recent Chrome, Edge, or Firefox. Safari and iOS browsers (including Chrome/Firefox for iOS) don't yet support the required audio decoder."
+                            : 'This device has no usable microphone.';
+                    } else {
+                        Q('p22statusText').textContent = 'Not connected.';
+                    }
                     QV('p22levelwrap', false);
                     break;
                 default: // idle
