@@ -855,6 +855,7 @@
                             <span id=DeskGuestShareButton title="Share the device with a guest"><img class="desktopButtons" id=DeskGuestShareButtonImage src='images/icon-share2.png' onclick=showShareDevice() height=16 width=16 /></span>
                             <span id=DeskAudioButton title="Toggle remote audio streaming" style="display:none"><img class="desktopButtons" id=DeskAudioButtonImage src='images/icon-audio-off.png' onclick=deskAudioToggle() height=16 width=16 /></span>
                             <span id=DeskMicButton title="Listen to the device microphone" style="display:none"><img class="desktopButtons" id=DeskMicButtonImage src='images/icon-mic-off.png' onclick=deskMicToggle() height=16 width=16 /><span id=DeskMicLevel><i></i></span></span>
+                            <span id=DeskCamButton title="Show the device camera" style="display:none"><img class="desktopButtons" id=DeskCamButtonImage src='images/icon-camera.png' onclick=p23ModalToggle(event) height=16 width=16 /></span>
                         </div>
                         <div class="toright2"><span id=DeskMonitorSelectionSpan></span></div>
                         <div>
@@ -1391,6 +1392,38 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Camera modal: the Desktop tab's shortcut (DeskCamButton) shows
+                 the same device camera here instead of navigating away, so the
+                 operator can keep working the desktop. It mirrors the live
+                 feed via deskCam.onFrame (see the wiring in connectDesktop)
+                 and shares the panel's start/stop/snapshot/recording logic,
+                 so both surfaces always agree about the camera's state. -->
+            <div id=p23modal role="dialog" aria-label="Camera" aria-hidden="true">
+                <div id=p23mhead>
+                    <span id=p23mlive><span class=dot></span>LIVE</span>
+                    <span id=p23mtitle>Camera</span>
+                    <button type=button id=p23mclose aria-label="Close camera" onclick=p23ModalClose(event) onkeypress="if (event.key == 'Enter') p23ModalClose(event)">&times;</button>
+                </div>
+                <div id=p23mstage>
+                    <canvas id=p23mcanvas style="display:block;width:100%;height:100%;object-fit:contain"></canvas>
+                    <div id=p23mplaceholder>The camera is not running.</div>
+                    <div id=p23mrecbadge>
+                        <span class=dot></span><span style="font-size:11px;font-weight:700;letter-spacing:0.5px">REC</span>
+                        <span id=p23mtimer>00:00</span>
+                    </div>
+                </div>
+                <div id=p23mfoot>
+                    <div id=p23mstats></div>
+                    <div id=p23mtoolbar>
+                        <input type=button id=p23mstartstop value="Start Camera" onclick=p23ModalStartStop(event) title="Start or stop the camera. Opening this modal never started anything by itself." />
+                        <input type=button id=p23msnap value="Take Photo" onclick=p23ModalSnapshot(event) title="Capture one still -- this never starts the live stream" />
+                        <input type=button id=p23mrec value="Record" onclick=p23RecToggle(event) title="Record the live stream to a WebM video file" />
+                    </div>
+                    <div id=p23mhint>The camera never starts on its own: opening this window did not start anything, and starting it below asks the device user first -- it cannot run without their acceptance. Full camera controls (settings, photos, recording) are on the Camera tab.</div>
+                    <div id=p23mnotice style="display:none" class="warningbox">This device's agent does not support camera settings yet -- it will use its default settings.</div>
                 </div>
             </div>
             <div id=p20 style="display:none">
@@ -9379,6 +9412,8 @@
             var btn = Q('p23startstop');
             if (!btn) return;
 
+            p23UpdateModalStatus();
+
             var infoText = Q('p23info');
             if (deskCam && deskCam.caps) {
                 var c = deskCam.caps;
@@ -9428,6 +9463,10 @@
             // but the two indicators have different meaning: live is the
             // state of the camera session, rec is the state of the file
             // being written to the operator's disk).
+            // "Stop" is a destructive-feeling action: it is red, both on the
+            // panel and on the modal (p23UpdateModalStatus mirrors this).
+            btn.classList.toggle('cam-stop', live);
+
             var liveBadge = Q('p23liveBadge');
             if (liveBadge) { liveBadge.style.display = live ? 'flex' : 'none'; }
             // Recording requires the live stream -- if the camera is off
@@ -9458,7 +9497,8 @@
         function p23StatsUpdate(stats) {
             var e = Q('p23stats');
             if (!e) return;
-            if (!deskCam || deskCam.state != 'live') { e.textContent = ''; return; }
+            var em = Q('p23mstats'); // the Desktop-tab modal shows the same line
+            if (!deskCam || deskCam.state != 'live') { e.textContent = ''; if (em) { em.textContent = ''; } return; }
             var bits = [];
             if (stats.width && stats.height) { bits.push(stats.width + ' x ' + stats.height); }
             bits.push(stats.fps + ' fps');
@@ -9466,7 +9506,9 @@
             // Worth showing plainly: it is the difference between the managed
             // device spending no CPU on video and spending a lot of it.
             bits.push(stats.passthrough ? 'camera JPEG, no re-encoding' : 're-encoded on device');
-            e.textContent = bits.join(' · ');
+            var txt = bits.join(' · ');
+            e.textContent = txt;
+            if (em) { em.textContent = txt; }
         }
 
         // ----- Photo strip -------------------------------------------------
@@ -9672,9 +9714,18 @@
         function p23RecBadge(show, ms) {
             var b = Q('p23recBadge');
             if (b) { b.style.display = show ? 'flex' : 'none'; }
+            var mb = Q('p23mrecbadge'); // the Desktop-tab modal shows the same badge
+            if (mb) { mb.style.display = show ? 'flex' : 'none'; }
             if (show && ms != null) {
                 var t = Q('p23recTimer');
                 if (t) { t.textContent = p23RecFmtTime(ms); }
+                var mt = Q('p23mtimer');
+                if (mt) { mt.textContent = p23RecFmtTime(ms); }
+            }
+            // Keep both record buttons (panel and modal) on the same state.
+            var recBtns = [Q('p23rec'), Q('p23mrec')];
+            for (var i = 0; i < recBtns.length; i++) {
+                if (recBtns[i]) { recBtns[i].value = show ? 'Stop Recording' : 'Record'; recBtns[i].classList.toggle('cam-rec', show); }
             }
         }
 
@@ -9797,16 +9848,24 @@
         function p23FullToggle(e) {
             if (e && e.stopPropagation) { e.stopPropagation(); }
             p23Fullscreen = !p23Fullscreen;
-            // The viewport is normally a fixed 16:9 box; in full screen it
-            // takes every available pixel, letterboxed by object-fit:contain.
+            // In full screen the whole left column becomes the panel
+            // (.fulldesk #p23main is the full window), so let the video
+            // stage fill the height that remains after the panel's own
+            // chrome (title, status bar, toolbar) instead of guessing a
+            // viewport offset that drifts with toolbar wrapping and the
+            // device-name header. The stage's width is bounded below so the
+            // fill never outgrows the screen in a narrow window;
+            // object-fit:contain letterboxes either way.
             var vs = Q('p23viewport');
             if (vs) {
                 if (p23Fullscreen) {
                     vs.style.aspectRatio = 'auto';
-                    vs.style.height = 'calc(100vh - 190px)';
+                    vs.style.height = 'calc(100vh - 200px)';
+                    vs.style.maxHeight = 'min(calc(100vh - 200px), 155vw)';
                 } else {
                     vs.style.aspectRatio = '';
                     vs.style.height = '';
+                    vs.style.maxHeight = '';
                 }
             }
             if (p23Fullscreen) {
@@ -9820,6 +9879,109 @@
             // The viewport's parent scrolls the panel; keep it in view.
             var main = Q('p23main');
             if (main && p23Fullscreen) { main.scrollTop = 0; }
+        }
+
+        // ----- Camera modal (Desktop tab shortcut) -----------------------
+        // DeskCamButton shows the camera in a floating card on top of the
+        // desktop, so the operator can watch it without leaving the desktop.
+        // The feed is mirrored through deskCam.onFrame (wired in
+        // connectDesktop) onto the modal's own canvas -- the Camera panel's
+        // canvas is never moved or re-painted, so both surfaces can be alive
+        // at the same time. Every action below is routed through the panel's
+        // own entry points (p23Toggle/p23Snapshot/p23RecToggle) so the
+        // modal and the tab can never disagree about what the camera is
+        // doing; the only modal-specific thing is drawing the mirror.
+        var p23ModalOpen = false;
+        var p23ModalMirrorCtx = null;
+        var p23ModalMirrorLastW = 0, p23ModalMirrorLastH = 0;
+
+        function p23ModalToggle(event) {
+            if (event) { event.preventDefault(); event.stopPropagation(); }
+            p23ModalSetOpen(!p23ModalOpen);
+            if (p23ModalOpen) { p23UpdateStatus(); }
+        }
+
+        function p23ModalSetOpen(open) {
+            p23ModalOpen = open;
+            var el = Q('p23modal');
+            if (!el) { return; }
+            el.style.display = open ? 'block' : 'none';
+            el.setAttribute('aria-hidden', open ? 'false' : 'true');
+            if (!open) {
+                // Drop the last mirrored frame the moment the card goes
+                // away: it is a copy of the live camera feed, and a live
+                // feed should not be sitting on screen after the camera
+                // view was closed. The panel's canvas keeps the stream.
+                var cv = Q('p23mcanvas');
+                if (cv) { cv.width = cv.height = 1; }
+                p23ModalMirrorLastW = p23ModalMirrorLastH = 0;
+                if (Q('p23mrecbadge')) { Q('p23mrecbadge').style.display = 'none'; }
+                if (Q('p23mstats')) { Q('p23mstats').textContent = ''; }
+            }
+        }
+
+        function p23ModalClose(event) {
+            if (event) { event.preventDefault(); event.stopPropagation(); }
+            p23ModalSetOpen(false);
+        }
+
+        // deskCam.onFrame fires once per decoded frame with the raw source,
+        // before the panel's own canvas is painted. Redraw it here at the
+        // same size: one extra drawImage, no re-decode. A frame can only
+        // arrive while the camera is live, so the placeholder is already off.
+        function p23ModalMirrorFrame(src, w, h) {
+            if (!p23ModalOpen || !src || !w || !h) { return; }
+            var cv = Q('p23mcanvas');
+            if (!cv) { return; }
+            // Lazy init the context on first frame (canvas must exist by then).
+            if (!p23ModalMirrorCtx) { p23ModalMirrorCtx = cv.getContext('2d'); }
+            if (!p23ModalMirrorCtx) { return; }
+            // Size the backing store to the frame (same as the panel does)
+            // so the CSS scaling keeps it crisp; re-draw on every frame.
+            if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+            p23ModalMirrorLastW = w; p23ModalMirrorLastH = h;
+            try { p23ModalMirrorCtx.drawImage(src, 0, 0, w, h); } catch (ex) { }
+        }
+
+        function p23UpdateModalStatus() {
+            if (!p23ModalOpen) { return; }
+            var state = deskCam ? deskCam.state : 'unavailable';
+            var live = (state == 'live');
+
+            var title = Q('p23mtitle');
+            if (title) { title.textContent = (currentNode ? currentNode.name : 'Camera') + ' - Camera'; }
+            QV('p23mplaceholder', !live);
+            var liveBadge = Q('p23mlive');
+            if (liveBadge) { liveBadge.style.display = live ? 'flex' : 'none'; }
+
+            var btn = Q('p23mstartstop');
+            if (btn) {
+                btn.classList.remove('cam-stop');
+                switch (state) {
+                    case 'live': btn.value = 'Stop Camera'; btn.classList.add('cam-stop'); break;
+                    case 'requesting': btn.value = 'Cancel'; break;
+                    default: btn.value = 'Start Camera'; break;
+                }
+            }
+            var snap = Q('p23msnap');
+            if (snap) { snap.disabled = (state == 'unavailable'); }
+            var rec = Q('p23mrec');
+            if (rec) { rec.classList.toggle('cam-rec', p23RecActive); }
+            if (deskCam && deskCam.caps) { QV('p23mnotice', deskCam.caps.settingsSupported === false); }
+        }
+
+        function p23ModalStartStop(event) {
+            // Reuse the panel's toggle: it owns the connect-then-start
+            // sequencing, the consent gate and the state updates that
+            // refresh both surfaces (p23Toggle -> deskCam.start ->
+            // deskCamApplyState -> p23UpdateStatus).
+            p23Toggle(event);
+        }
+
+        function p23ModalSnapshot(event) {
+            if (event) { event.stopPropagation(); }
+            p23Snapshot();
+            p11setConsoleMsg('Taking a photo...', 2500);
         }
 
         function p23QueryDevices() {
@@ -9938,6 +10100,15 @@
                 tabBtn.classList.remove('micRequesting', 'micLive');
                 if (state == 'requesting') { tabBtn.classList.add('micRequesting'); }
                 else if (state == 'live') { tabBtn.classList.add('micLive'); }
+            }
+            // Same state, also on the Desktop panel's camera button, so the
+            // operator sees the camera is live (or being asked for) without
+            // the modal open -- the mic button does exactly this.
+            var deskBtn = Q('DeskCamButton');
+            if (deskBtn) {
+                deskBtn.classList.remove('micRequesting', 'micLive');
+                if (state == 'requesting') { deskBtn.classList.add('micRequesting'); }
+                else if (state == 'live') { deskBtn.classList.add('micLive'); deskBtn.title = 'Camera is live - click to show'; }
             }
             // Surface the outcome rather than failing silently: being unsure
             // whether a camera is open is worse than a little noise.
@@ -11010,6 +11181,9 @@
                         // only after the device user agrees.
                         deskCam = CreateAgentCamera(desktop);
                         deskCam.setCanvas(Q('p23canvas'));
+                        // The modal's context is lazily initialized on first
+                        // frame, when the canvas is guaranteed to exist.
+                        deskCam.onFrame = p23ModalMirrorFrame;
                         deskCam.onStateChanged = deskCamApplyState;
                         deskCam.onStats = p23StatsUpdate;
                         deskCam.onSnapshot = p23SnapshotReceived;
@@ -11021,7 +11195,15 @@
                         // itself is always installed.
                         deskCam.onFramePainted = p23OnFramePainted;
                         deskCam.applySettings(camsettings); // seed the persisted/default profile before the first start()
-                        desktop.m.onCamCaps = function(caps) { deskCam.onCaps(caps); p23UpdateStatus(); };
+                        desktop.m.onCamCaps = function(caps) {
+                            deskCam.onCaps(caps);
+                            // Show/hide the Desktop tab's camera button by
+                            // capability, the way DeskMicButton does for the
+                            // microphone: an agent that has no camera gives
+                            // the button nothing to do.
+                            QV('DeskCamButton', !!(caps && caps.captureAvailable));
+                            p23UpdateStatus();
+                        };
                         desktop.m.onCamData = function(frame) { deskCam.onData(frame); };
                         desktop.m.onCamSnapshot = function(snap) { deskCam.onSnapshotData(snap); };
                         desktop.m.onCamDeviceList = function(devices) { deskCam.onDeviceList(devices); p23DeviceListReceived(devices); };
@@ -11275,6 +11457,7 @@
                         // long as the page stayed open.
                         if (deskCam != null) { deskCam.stop(); deskCam.dispose(); deskCam = null; }
                         QV('p23snapwrap', false);
+                        QV('DeskCamButton', false);
                         // Disconnect and clean up the remote desktop
                         desktop.Stop();
                     }

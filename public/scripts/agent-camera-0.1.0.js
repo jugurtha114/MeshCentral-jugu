@@ -55,6 +55,14 @@ var CreateAgentCamera = function (desktop) {
     // in lockstep with what the operator sees -- no duplicate or dropped
     // frames, no extra repaint pipeline.
     obj.onFramePainted = null;   // function (canvas, width, height)
+    // Per-frame fan-out hook. Fired once per painted frame with the raw
+    // decoded source (createImageBitmap, or the Image in the fallback path),
+    // *before* it is drawn to obj.canvas. A second consumer of the same
+    // stream -- e.g. the Desktop panel's camera modal mirroring the feed
+    // while the Camera panel stays open -- can draw it onto its own canvas
+    // from here without re-decoding the JPEG, and without touching the
+    // primary canvas at all.
+    obj.onFrame = null;          // function (src, width, height)
 
     obj.stats = { frames: 0, bytes: 0, fps: 0, kbps: 0, width: 0, height: 0, passthrough: false };
 
@@ -222,16 +230,24 @@ var CreateAgentCamera = function (desktop) {
         var blob;
         try { blob = new Blob([bytes], { type: 'image/jpeg' }); } catch (ex) { return; }
 
+        // A late frame is dropped from the primary display (lastDrawnId)
+        // but still offered to onFrame -- a second viewer that is a couple
+        // of frames behind its neighbour would rather lag than skip.
+        function present(src, w, h) {
+            if (obj.onFrame) { try { obj.onFrame(src, w, h); } catch (ex) { } }
+            if (myId > lastDrawnId) { lastDrawnId = myId; paint(src, w, h); }
+        }
+
         if (typeof createImageBitmap === 'function') {
             createImageBitmap(blob).then(function (bmp) {
-                if (myId > lastDrawnId) { lastDrawnId = myId; paint(bmp, bmp.width, bmp.height); }
+                present(bmp, bmp.width, bmp.height);
                 if (bmp.close) { bmp.close(); }
             }).catch(function () { /* a corrupt frame must not end the stream */ });
         } else {
             var url = URL.createObjectURL(blob);
             var img = new Image();
             img.onload = function () {
-                if (myId > lastDrawnId) { lastDrawnId = myId; paint(img, img.naturalWidth, img.naturalHeight); }
+                present(img, img.naturalWidth, img.naturalHeight);
                 URL.revokeObjectURL(url);
             };
             img.onerror = function () { URL.revokeObjectURL(url); };

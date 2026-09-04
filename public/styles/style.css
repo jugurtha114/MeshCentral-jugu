@@ -1598,6 +1598,184 @@ NoMeshesPanel img {
     border-color: #e53935;
 }
 
+/* --- Camera panel + Desktop-panel camera modal: shared control language -- */
+/* Both the Camera tab (p23) and the Desktop tab's camera modal (p23modal)
+ * present the same device camera, so both are written against this one set
+ * of rules. Buttons are reached by attribute selector so the markup does
+ * not need a class on every control; the filled/active states (start, stop,
+ * recording) are added by JS as classes. */
+
+/* Neutral action buttons used across both surfaces. The browser-default
+   input[type=button] looked inconsistent and small, so give the panel a
+   deliberate, uniform control style that reads the same in light and night. */
+#p23toolbar input[type=button],
+#p23snapwrap input[type=button],
+#p23modal input[type=button],
+#p23mtoolbar input[type=button] {
+    padding: 6px 14px;
+    border: 1px solid rgba(128,128,128,0.45);
+    border-radius: 5px;
+    background-color: rgba(128,128,128,0.10);
+    color: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+#p23toolbar input[type=button]:hover,
+#p23snapwrap input[type=button]:hover,
+#p23modal input[type=button]:hover,
+#p23mtoolbar input[type=button]:hover { background-color: rgba(128,128,128,0.22); }
+#p23toolbar input[type=button]:focus-visible,
+#p23snapwrap input[type=button]:focus-visible,
+#p23modal input[type=button]:focus-visible,
+#p23mtoolbar input[type=button]:focus-visible {
+    outline: 2px solid #1e6fd0;
+    outline-offset: 1px;
+}
+#p23toolbar input[type=button]:disabled,
+#p23snapwrap input[type=button]:disabled,
+#p23modal input[type=button]:disabled,
+#p23mtoolbar input[type=button]:disabled {
+    opacity: 0.45;
+    cursor: default;
+    background-color: rgba(128,128,128,0.10);
+}
+.night #p23toolbar input[type=button],
+.night #p23snapwrap input[type=button],
+.night #p23modal input[type=button],
+.night #p23mtoolbar input[type=button] {
+    border-color: rgba(160,160,160,0.4);
+    background-color: rgba(255,255,255,0.06);
+}
+.night #p23toolbar input[type=button]:hover,
+.night #p23snapwrap input[type=button]:hover,
+.night #p23modal input[type=button]:hover,
+.night #p23mtoolbar input[type=button]:hover { background-color: rgba(255,255,255,0.14); }
+
+/* The two "primary" actions on each surface -- start/stop the camera and
+   record -- are filled rather than outlined so the eye finds them first. */
+#p23startstop, #p23mstartstop, #p23rec, #p23mrec {
+    background-color: #003366 !important;
+    border-color: #003366 !important;
+    color: #fff !important;
+}
+#p23startstop:hover, #p23mstartstop:hover, #p23rec:hover, #p23mrec:hover {
+    background-color: #004a8f !important;
+}
+.night #p23startstop, .night #p23mstartstop, .night #p23rec, .night #p23mrec {
+    background-color: #0d5aa8 !important;
+    border-color: #0d5aa8 !important;
+}
+
+/* State tints added by JS. Stop/record are destructive-feeling actions, so
+   they turn red -- the same warning-red the status dot and LIVE badge use. */
+#p23startstop.cam-stop, #p23mstartstop.cam-stop {
+    background-color: #b71c1c !important;
+    border-color: #b71c1c !important;
+}
+#p23startstop.cam-stop:hover, #p23mstartstop.cam-stop:hover { background-color: #d32f2f !important; }
+#p23rec.cam-rec, #p23mrec.cam-rec {
+    background-color: #b71c1c !important;
+    border-color: #b71c1c !important;
+}
+#p23rec.cam-rec:hover, #p23mrec.cam-rec:hover { background-color: #d32f2f !important; }
+
+/* Camera modal (Desktop tab shortcut). A floating, self-contained card over
+   the desktop: header with the device name and close control, a 16:9 stage
+   that letterboxes the feed, a stats line, and a compact toolbar. Sits above
+   the app's own #dialog (z-index 1000). */
+#p23modal {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1100;
+    width: min(760px, 94vw);
+    max-height: 92vh;
+    overflow: auto;
+    box-sizing: border-box;
+    background-color: #fff;
+    color: #222;
+    border: 1px solid rgba(128,128,128,0.45);
+    border-radius: 8px;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.4);
+}
+.night #p23modal { background-color: #161616; color: #ddd; }
+
+#p23mhead {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(128,128,128,0.3);
+}
+#p23mtitle { font-size: 15px; font-weight: 600; flex: 1; }
+#p23mlive {
+    display: none;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #43a047;
+    letter-spacing: 0.5px;
+}
+#p23mlive .dot { width: 6px; height: 6px; background: #43a047; border-radius: 50%; }
+#p23mclose {
+    border: none;
+    background: transparent;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    color: #888;
+    padding: 0 4px;
+    border-radius: 4px;
+}
+#p23mclose:hover { background: rgba(128,128,128,0.2); color: #333; }
+.night #p23mclose:hover { color: #fff; }
+
+#p23mstage {
+    position: relative;
+    background: #101010;
+    aspect-ratio: 16/9;
+}
+#p23mcanvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+#p23mplaceholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #888;
+    font-size: 13px;
+    text-align: center;
+    padding: 8px;
+    pointer-events: none;
+}
+#p23mrecbadge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    padding: 3px 10px;
+    border-radius: 4px;
+    pointer-events: none;
+}
+#p23mrecbadge .dot { width: 8px; height: 8px; background: #e53935; border-radius: 50%; animation: micPulse 1.2s ease-in-out infinite; }
+#p23mtimer { font-family: monospace; font-size: 11px; }
+@media (prefers-reduced-motion: reduce) { #p23mrecbadge .dot { animation: none; } }
+
+#p23mfoot { padding: 12px 14px; }
+#p23mstats { font-size: 12px; color: #888; margin-bottom: 10px; min-height: 14px; }
+#p23mtoolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#p23mhint { font-size: 12px; color: #888; margin-top: 10px; }
+#p23mnotice { margin-top: 10px; }
+
 .p3usersTable {
     width: 100%;
     border-spacing: 0;
@@ -3980,6 +4158,20 @@ a {
 
 @media (prefers-reduced-motion: reduce) {
     #MainDevMic.micRequesting { animation: none; opacity: 0.7; }
+}
+
+/* Desktop-tab camera shortcut button. Same state language as the mic button
+   next to it: pulses while the device user decides, tints green once the
+   feed is live. Green (not red) for live, matching the camera panel's dot:
+   a camera the operator is deliberately looking at is not a leak. */
+#DeskCamButton { position: relative; display: inline-block; }
+#DeskCamButton.micRequesting .desktopButtons { animation: micPulse 1.2s ease-in-out infinite; }
+#DeskCamButton.micLive .desktopButtons {
+    filter: drop-shadow(0 0 2px #43a047);
+    -webkit-filter: drop-shadow(0 0 2px #43a047);
+}
+@media (prefers-reduced-motion: reduce) {
+    #DeskCamButton.micRequesting .desktopButtons { animation: none; opacity: 0.6; }
 }
 
 
