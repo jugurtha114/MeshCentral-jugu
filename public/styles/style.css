@@ -4329,7 +4329,7 @@ input[type=range] {
         gap: 12px;
     }
 
-    #p23left, #p23right {
+    #p23left, body:not(.fulldesk) #p23right {
         flex: 1 1 100% !important;
         min-width: 100% !important;
         max-width: none !important;
@@ -4337,10 +4337,6 @@ input[type=range] {
 
     #p22body, #p23body {
         max-width: 100%;
-    }
-
-    #p22settings, #p23settings, #p23photosec {
-        margin-top: 12px;
     }
 
     /* Stack settings vertically on mobile */
@@ -4409,6 +4405,323 @@ input[type=range] {
 #p23mtoolbar input:focus-visible {
     outline: 2px solid #1e6fd0;
     outline-offset: 2px;
+}
+
+/* --- Phone shell width (root cause fix) ------------------------------- */
+/* #container has a hardcoded 960px floor (further up this file) and body
+   has an inline min-width:495px -- both inherited from the upstream desktop-
+   oriented layout. Without this override, no max-width media query in this
+   file (including everything below) can have any visible effect on a real
+   phone: the page simply renders its desktop layout shrunk to fit, which is
+   what made the device tab bar (Mic/Camera included) effectively
+   unreachable on mobile. Gated to <=768px, so tablet/desktop are pixel-for-
+   pixel unaffected. */
+@media (max-width: 768px) {
+    body { min-width: unset; }
+    #container { width: 100%; min-width: unset; }
+}
+
+/* --- Scrollable top navigation tab bars (mobile) ---------------------- */
+/* #MainMenuSpan (My Devices/Account/Events/Files/Users/Server) and every
+   *SubMenu table (device tabs incl. Mic/Camera, Mesh, Events, User, Users,
+   Server) are plain HTML tables with fixed 100px-wide <td>s and no wrapping
+   -- on a phone that overflows the screen with no scroll affordance, which
+   is why tabs past the first three or four were effectively unreachable.
+   This turns them into a horizontally scrollable strip instead, and gives
+   the touch targets WCAG's 44px minimum height (they were 24px). Desktop
+   keeps the exact current table layout untouched. */
+@media (max-width: 768px) {
+    /* The wrapping *SubMenuSpan divs (and #MainMenuSpan itself) have a
+       shared height:24px rule further up this file, sized for the old
+       24px-tall cells -- without this override that fixed height would
+       clip the new 44px touch targets instead of growing to fit them. */
+    #MainMenuSpan,
+    #MainSubMenuSpan,
+    #MeshSubMenuSpan,
+    #EventsSubMenuSpan,
+    #UserSubMenuSpan,
+    #UsersSubMenuSpan,
+    #ServerSubMenuSpan,
+    .scrollable-tabbar {
+        height: 44px;
+    }
+    #MainMenuSpan,
+    .scrollable-tabbar {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        white-space: nowrap;
+        scrollbar-width: thin;
+    }
+    #MainMenuSpan tr,
+    .scrollable-tabbar tr {
+        display: block;
+        white-space: nowrap;
+    }
+    #MainMenuSpan::-webkit-scrollbar,
+    .scrollable-tabbar::-webkit-scrollbar {
+        height: 4px;
+    }
+    #MainMenuSpan::-webkit-scrollbar-thumb,
+    .scrollable-tabbar::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.4);
+        border-radius: 2px;
+    }
+    #MainMenuSpan .topbar_td,
+    .scrollable-tabbar .topbar_td {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        vertical-align: middle;
+        width: auto;
+        min-width: 72px;
+        height: 44px;
+        padding: 0 16px;
+        box-sizing: border-box;
+        text-align: center;
+    }
+    #MainMenuSpan .topbar_td_end,
+    .scrollable-tabbar .topbar_td_end {
+        display: none; /* trailing filler cell -- not needed once the table is content-width and scrollable */
+    }
+}
+
+/* --- Settings sheet / drawer chrome (shared by p22 and p23) ------------ */
+/* .settings-content is used three ways depending on context (see
+   toggleSettingsAccordion()/settingsSheetIsOverlay() in default.handlebars):
+   inline on desktop, a bottom sheet on phones, or -- for the Camera panel
+   only -- content inside the fullscreen slide-in drawer. The drag handle,
+   sheet header and close button below are part of that same markup but only
+   ever rendered in the two overlay presentations; desktop hides them since
+   the inline panel already has its own header via .settings-header. */
+.settings-sheet-bar,
+.settings-sheet-head {
+    display: none;
+}
+
+#settingsSheetBackdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1180;
+}
+
+body.settings-sheet-open,
+body.p23-drawer-open {
+    overflow: hidden; /* lock background scroll while a sheet/drawer is open */
+}
+
+@media (max-width: 768px) {
+    /* Bottom sheet: mobile, not fullscreen. Fullscreen (any width) uses the
+       drawer rules further below instead, so this is explicitly scoped off
+       when body.fulldesk is present to avoid the two presentations fighting
+       over the same element. */
+    body:not(.fulldesk) .cam-settings .settings-content,
+    body:not(.fulldesk) .mic-settings .settings-content {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        top: auto;
+        z-index: 1190;
+        max-height: 80vh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        margin: 0;
+        border-radius: 14px 14px 0 0;
+        box-shadow: 0 -8px 32px rgba(0,0,0,0.35);
+        background: #fff;
+        padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+        box-sizing: border-box;
+    }
+    body:not(.fulldesk) .settings-sheet-bar {
+        display: block;
+        width: 36px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(128,128,128,0.4);
+        margin: 4px auto 10px;
+    }
+    body:not(.fulldesk) .settings-sheet-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+    }
+    body:not(.fulldesk) .settings-sheet-title {
+        font-weight: 600;
+        font-size: 15px;
+    }
+    body:not(.fulldesk) .settings-sheet-close {
+        border: none;
+        background: rgba(128,128,128,0.12);
+        width: 32px;
+        height: 32px;
+        min-height: 32px;
+        border-radius: 50%;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        color: inherit;
+    }
+    /* The original header stays as the (now purely mobile) trigger; it is
+       shown inline above where the panel's content used to expand, and its
+       own chevron still communicates open/closed state. */
+    body:not(.fulldesk) .settings-header::after {
+        content: '+';
+        transform: none;
+        font-size: 16px;
+    }
+    body:not(.fulldesk) .settings-header[aria-expanded="true"]::after {
+        content: '\2212'; /* minus sign, avoids implying further expansion once it's a sheet */
+    }
+    /* Night mode: the sheet is a solid card floating over the page (unlike
+       the desktop inline panel, which just tints its existing wrapper), so
+       it needs its own explicit dark background here -- scoped to the same
+       not(.fulldesk) bottom-sheet case as the rules above, so plain desktop
+       night mode keeps its existing subtler inline tint (from
+       .night .cam-settings / .night .mic-settings) unchanged. */
+    body.night:not(.fulldesk) .cam-settings .settings-content,
+    body.night:not(.fulldesk) .mic-settings .settings-content {
+        background: #161616;
+        color: #ddd;
+    }
+    body.night:not(.fulldesk) .settings-sheet-close {
+        background: rgba(255,255,255,0.14);
+    }
+    body.night:not(.fulldesk) .settings-sheet-bar {
+        background: rgba(255,255,255,0.3);
+    }
+}
+
+.night #settingsSheetBackdrop { background: rgba(0,0,0,0.65); }
+
+/* --- Camera fullscreen settings drawer (p23 only) ---------------------- */
+/* Fullscreen replaces the inline side panel with a floating gear button
+   (.p23-fab, over the video stage) that slides #p23right in from the edge
+   as a drawer instead -- satisfies "fullscreen should not show settings"
+   while keeping them one tap away, on both phone and desktop fullscreen. */
+.p23-fab {
+    display: none;
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-size: 18px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    transition: background-color 0.15s ease;
+}
+.p23-fab:hover { background: rgba(0,0,0,0.75); }
+.p23-fab:focus-visible { outline: 2px solid #4da3ff; outline-offset: 2px; }
+
+body.fulldesk .p23-fab {
+    display: flex;
+}
+
+.p23-drawer-head {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(128,128,128,0.3);
+    font-weight: 600;
+    font-size: 15px;
+}
+
+body.fulldesk #p23right {
+    display: block;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(340px, 88vw);
+    z-index: 1190;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    background: #fff;
+    box-shadow: -6px 0 28px rgba(0,0,0,0.4);
+    padding: 16px calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) 16px;
+    box-sizing: border-box;
+    margin: 0;
+    max-width: none;
+    min-width: 0;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+}
+body.fulldesk.p23-drawer-open #p23right {
+    transform: translateX(0);
+}
+body.fulldesk #p23right .p23-drawer-head {
+    display: flex;
+}
+/* Inside the drawer both sections are just always-expanded, non-interactive
+   labels -- the drawer's own close button is the single toggle, so a second
+   layer of per-section collapsing would only add confusion. */
+body.fulldesk #p23right .settings-header {
+    cursor: default;
+    pointer-events: none;
+}
+body.fulldesk #p23right .settings-header::after {
+    display: none;
+}
+body.fulldesk #p23right .settings-content {
+    display: block !important;
+    position: static !important;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+    max-height: none;
+    overflow: visible;
+    background: transparent;
+    color: inherit;
+}
+body.fulldesk #p23right .settings-sheet-bar,
+body.fulldesk #p23right .settings-sheet-head {
+    display: none; /* the drawer-head above already provides the title/close */
+}
+
+body.night.fulldesk #p23right {
+    background: #161616;
+    color: #ddd;
+}
+.night .p23-drawer-head {
+    border-bottom-color: rgba(160,160,160,0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.fulldesk #p23right { transition: none; }
+}
+
+/* --- Tap feedback (mobile touch affordance) ---------------------------- */
+#p22toolbar input[type=button]:active,
+#p23toolbar input[type=button]:active,
+#p23mtoolbar input[type=button]:active,
+.topbar_td:active,
+.p23-fab:active,
+.settings-sheet-close:active {
+    transform: scale(0.96);
+}
+@media (prefers-reduced-motion: reduce) {
+    #p22toolbar input[type=button]:active,
+    #p23toolbar input[type=button]:active,
+    #p23mtoolbar input[type=button]:active,
+    .topbar_td:active,
+    .p23-fab:active,
+    .settings-sheet-close:active {
+        transform: none;
+    }
 }
 
 
