@@ -1041,6 +1041,7 @@
                     <div id=p10mic style="overflow-y:auto;position:absolute;top:55px;bottom:0px;width:100%;display:none">
                         <div style="padding:6px 8px;background:#C0C0C0">
                             <input type=button id=p10micStartStop value="Listen" onclick=p10micToggle() style="height:28px" />
+                            <input type=button id=p10micSettingsBtn value="Settings" onclick=p10micSettings() style="height:28px" title="Audio quality profile" />
                             <span class=textOverGray id=p10micStatus>Disconnected</span>
                         </div>
                         <div id=p10micLevelWrap style="display:none;margin:12px 8px;height:10px;border-radius:5px;overflow:hidden;background:rgba(0,0,0,0.15)">
@@ -1055,6 +1056,7 @@
                         <div style="position:absolute;top:0px;width:100%;height:34px;padding:3px 8px;background:#C0C0C0;box-sizing:border-box">
                             <input type=button id=p10camStartStop value="Start" onclick=p10camToggle() style="height:28px" />
                             <input type=button id=p10camSnap value="Photo" onclick=p10camSnapshot() style="height:28px" />
+                            <input type=button id=p10camSettingsBtn value="Settings" onclick=p10camSettings() style="height:28px" title="Video quality profile" />
                             <span class=textOverGray id=p10camStatus>Disconnected</span>
                         </div>
                         <div style="position:absolute;top:34px;bottom:0px;width:100%;background-color:#000;display:flex;align-items:center;justify-content:center;overflow:hidden">
@@ -4838,6 +4840,16 @@
                 if (origOnStateChanged) { origOnStateChanged(xdesktop, state); }
                 if ((state == 3) && (xdesktop === desktop)) {
                     if (desktop.m && desktop.m.SendPause) { desktop.m.SendPause(); }
+                    // Ask for microphone and camera capabilities explicitly.
+                    // agent-desktop only sends these queries from
+                    // ProcessScreenMsg() -- i.e. off the back of a video frame
+                    // -- and this session deliberately runs with video paused,
+                    // so relying on that would leave caps null forever. A null
+                    // caps makes the modules' start() fail straight to
+                    // 'unavailable', which is exactly the "always unavailable"
+                    // this panel showed before.
+                    if (deskMic) { deskMic.query(); }
+                    if (deskCam) { deskCam.query(); }
                     then();
                 }
                 p10micUpdateStatus();
@@ -4846,14 +4858,106 @@
             return true;
         }
 
+        // Both modules' start() fails straight to 'unavailable' when caps have
+        // not arrived yet, and caps are asynchronous. So a press that lands
+        // before them is remembered here and replayed from the caps handler,
+        // rather than being turned into a wrong "no microphone" answer.
+        var p10micPendingStart = false, p10camPendingStart = false;
+
+        // Named profiles, matching the desktop template's so a device behaves
+        // the same whichever one you reach it from. Only the profile is
+        // offered here -- the per-field encoder controls the desktop panels
+        // carry would be unusable on a phone, and picking the bandwidth/
+        // quality trade-off is the choice that actually matters on mobile
+        // data. Field names match SendMicStart()/SendCamStart()'s params.
+        var p10micPresets = {
+            balanced:     { bitrateKbps: 28, application: 0, vbr: 1, vbrConstrained: 0, bandwidth: 0, frameSizeMs: 20, complexity: 5,  dtx: true,  fec: true,  packetLossPercent: 10 },
+            lowbandwidth: { bitrateKbps: 8,  application: 0, vbr: 1, vbrConstrained: 0, bandwidth: 1, frameSizeMs: 60, complexity: 5,  dtx: true,  fec: true,  packetLossPercent: 15 },
+            highfidelity: { bitrateKbps: 64, application: 1, vbr: 1, vbrConstrained: 0, bandwidth: 5, frameSizeMs: 20, complexity: 10, dtx: false, fec: true,  packetLossPercent: 5 },
+            lowlatency:   { bitrateKbps: 48, application: 2, vbr: 1, vbrConstrained: 0, bandwidth: 5, frameSizeMs: 10, complexity: 6,  dtx: false, fec: true,  packetLossPercent: 10 }
+        };
+        var p10micPresetNames = { balanced: 'Balanced', lowbandwidth: 'Low bandwidth', highfidelity: 'High fidelity', lowlatency: 'Low latency' };
+        var p10micPreset = 'balanced';
+
+        // Values copied verbatim from camPresets in default.handlebars -- the
+        // field names have to match SendCamStart()'s params exactly
+        // (suppressStatic / staticThreshold / forceRaw), and duplicating the
+        // numbers keeps a device behaving the same from either template.
+        var p10camPresets = {
+            balanced:     { width: 640,  height: 480, fps: 15, quality: 75, suppressStatic: true,  staticThreshold: 3, forceRaw: false },
+            lowbandwidth: { width: 320,  height: 240, fps: 5,  quality: 50, suppressStatic: true,  staticThreshold: 6, forceRaw: false },
+            highquality:  { width: 1280, height: 720, fps: 15, quality: 90, suppressStatic: true,  staticThreshold: 3, forceRaw: false },
+            smooth:       { width: 640,  height: 480, fps: 30, quality: 70, suppressStatic: false, staticThreshold: 1, forceRaw: false }
+        };
+        var p10camPresetNames = { balanced: 'Balanced', lowbandwidth: 'Low bandwidth', highquality: 'High quality', smooth: 'Smooth motion' };
+        var p10camPreset = 'balanced';
+
+        // Restore the last choice. Kept under their own keys rather than
+        // sharing the desktop template's 'micsettings'/'camsettings', whose
+        // stored shape includes fields this panel never edits.
+        try {
+            var storedMic = localStorage.getItem('p10micPreset');
+            if (storedMic && p10micPresets[storedMic]) { p10micPreset = storedMic; }
+            var storedCam = localStorage.getItem('p10camPreset');
+            if (storedCam && p10camPresets[storedCam]) { p10camPreset = storedCam; }
+        } catch (ex) { }
+
+        function p10PresetDialogHtml(presets, names, current) {
+            var x = '<select id=p10presetSelect style="width:100%;height:32px;font-size:16px">';
+            for (var k in presets) {
+                x += '<option value="' + k + '"' + ((k == current) ? ' selected' : '') + '>' + names[k] + '</option>';
+            }
+            return x + '</select>';
+        }
+
+        function p10micSettings() {
+            if (xxdialogMode) return;
+            setDialogMode(2, "Mic Settings", 3, p10micSettingsApply, p10PresetDialogHtml(p10micPresets, p10micPresetNames, p10micPreset));
+        }
+
+        function p10micSettingsApply() {
+            var sel = Q('p10presetSelect');
+            if (!sel || !p10micPresets[sel.value]) return;
+            p10micPreset = sel.value;
+            try { localStorage.setItem('p10micPreset', p10micPreset); } catch (ex) { }
+            // applySettings re-sends mid-session if already listening, so a
+            // change takes effect without dropping the stream.
+            if (deskMic) { deskMic.applySettings(p10micPresets[p10micPreset]); }
+        }
+
+        function p10camSettings() {
+            if (xxdialogMode) return;
+            setDialogMode(2, "Camera Settings", 3, p10camSettingsApply, p10PresetDialogHtml(p10camPresets, p10camPresetNames, p10camPreset));
+        }
+
+        function p10camSettingsApply() {
+            var sel = Q('p10presetSelect');
+            if (!sel || !p10camPresets[sel.value]) return;
+            p10camPreset = sel.value;
+            try { localStorage.setItem('p10camPreset', p10camPreset); } catch (ex) { }
+            if (deskCam) { deskCam.applySettings(p10camPresets[p10camPreset]); }
+        }
+
+        function p10micStart() {
+            if (!deskMic) return;
+            if (deskMic.caps) { p10micPendingStart = false; deskMic.start(true); }
+            else { p10micPendingStart = true; deskMic.query(); }
+            p10micUpdateStatus();
+        }
+
         function p10micToggle() {
-            if (deskMic && ((deskMic.state == 'live') || (deskMic.state == 'requesting'))) { deskMic.stop(); p10micUpdateStatus(); return; }
+            // A press while a start is still queued behind caps cancels it,
+            // so the button always does what its label says.
+            if (p10micPendingStart) { p10micPendingStart = false; p10micUpdateStatus(); return; }
+            if (deskMic && ((deskMic.state == 'live') || (deskMic.state == 'requesting'))) {
+                deskMic.stop(); p10micUpdateStatus(); return;
+            }
             // start(true) matches the desktop template's Mic panel: this
             // panel shows no video, so there is nothing for an interactive
             // prompt to sit on top of. The agent's own policy layer still
             // decides whether to capture -- see micConsentHandleStart() in
             // agents/meshcore.js.
-            p10EnsureSession(function () { if (deskMic) { deskMic.start(true); } });
+            p10EnsureSession(p10micStart);
             p10micUpdateStatus();
         }
 
@@ -4880,6 +4984,18 @@
                 status.textContent = 'Disconnected';
                 QV('p10micLevelWrap', false);
                 p10micSetInfo('Press Listen to connect to this device and ask its user for the microphone.');
+                return;
+            }
+
+            // Caps not in yet: the module reports 'unavailable' until it
+            // knows better, which is not the same thing as "no microphone".
+            // Saying so would send the operator looking at the wrong machine.
+            if (deskMic && !deskMic.caps) {
+                btn.value = p10micPendingStart ? 'Cancel' : 'Listen';
+                btn.disabled = false;
+                status.textContent = 'Connecting';
+                QV('p10micLevelWrap', false);
+                p10micSetInfo('Asking the device what audio hardware it has...');
                 return;
             }
 
@@ -4926,12 +5042,22 @@
         // CAMERA PANEL (currentDevicePanel 8)
         //
 
-        function p10camToggle() {
-            if (deskCam && ((deskCam.state == 'live') || (deskCam.state == 'requesting'))) { deskCam.stop(); p10camUpdateStatus(); return; }
+        function p10camStart() {
+            if (!deskCam) return;
             // start(false): unlike the microphone, the camera always shows the
             // device's user an interactive prompt. Being watched without
             // knowing is the thing this feature must never allow.
-            p10EnsureSession(function () { if (deskCam) { deskCam.start(false); } });
+            if (deskCam.caps) { p10camPendingStart = false; deskCam.start(false); }
+            else { p10camPendingStart = true; deskCam.query(); }
+            p10camUpdateStatus();
+        }
+
+        function p10camToggle() {
+            if (p10camPendingStart) { p10camPendingStart = false; p10camUpdateStatus(); return; }
+            if (deskCam && ((deskCam.state == 'live') || (deskCam.state == 'requesting'))) {
+                deskCam.stop(); p10camUpdateStatus(); return;
+            }
+            p10EnsureSession(p10camStart);
             p10camUpdateStatus();
         }
 
@@ -4969,6 +5095,16 @@
                 btn.disabled = false;
                 snap.disabled = true;
                 status.textContent = 'Disconnected';
+                return;
+            }
+
+            // See the matching note in p10micUpdateStatus(): 'unavailable'
+            // before caps arrive means "not known yet", not "no camera".
+            if (deskCam && !deskCam.caps) {
+                btn.value = p10camPendingStart ? 'Cancel' : 'Start';
+                btn.disabled = false;
+                snap.disabled = true;
+                status.textContent = 'Connecting';
                 return;
             }
 
@@ -5063,7 +5199,16 @@
                         deskMic = CreateAgentMic(desktop);
                         deskMic.onStateChanged = p10micApplyState;
                         deskMic.onLevel = p10micApplyLevel;
-                        desktop.m.onMicCaps = function (caps) { deskMic.onCaps(caps); p10micUpdateStatus(); };
+                        deskMic.applySettings(p10micPresets[p10micPreset]); // seed the saved profile before the first start()
+                        desktop.m.onMicCaps = function (caps) {
+                            deskMic.onCaps(caps);
+                            // Replay a press that arrived before caps did.
+                            if (p10micPendingStart) {
+                                p10micPendingStart = false;
+                                if (caps && caps.captureAvailable) { deskMic.start(true); }
+                            }
+                            p10micUpdateStatus();
+                        };
                         desktop.m.onMicData = function (view) { deskMic.onData(view); };
                         desktop.onMicConsent = function (granted) { if (!granted) { deskMic.onConsentDenied(); } };
                     }
@@ -5072,7 +5217,15 @@
                         deskCam.setCanvas(Q('p10camCanvas'));
                         deskCam.onStateChanged = p10camApplyState;
                         deskCam.onSnapshot = p10camSnapshotReceived;
-                        desktop.m.onCamCaps = function (caps) { deskCam.onCaps(caps); p10camUpdateStatus(); };
+                        deskCam.applySettings(p10camPresets[p10camPreset]); // seed the saved profile before the first start()
+                        desktop.m.onCamCaps = function (caps) {
+                            deskCam.onCaps(caps);
+                            if (p10camPendingStart) {
+                                p10camPendingStart = false;
+                                if (caps && caps.captureAvailable) { deskCam.start(false); }
+                            }
+                            p10camUpdateStatus();
+                        };
                         desktop.m.onCamData = function (frame) { deskCam.onData(frame); };
                         desktop.m.onCamSnapshot = function (snap) { deskCam.onSnapshotData(snap); };
                         desktop.onCamConsent = function (granted) { if (!granted) { deskCam.onConsentDenied(); } };

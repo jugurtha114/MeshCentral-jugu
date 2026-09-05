@@ -9187,7 +9187,16 @@
                     QV('p22levelwrap', false);
                     break;
                 case 'unavailable':
-                    btn.value = 'Start Listening';
+                    btn.value = p22PendingStart ? 'Cancel' : 'Start Listening';
+                    // The module sits in 'unavailable' until the agent answers
+                    // the capability query, which is not the same as the
+                    // device having no microphone -- saying so would point the
+                    // operator at the wrong machine.
+                    if (desktop && (desktop.State == 3) && deskMic && !deskMic.caps) {
+                        Q('p22statusText').textContent = 'Checking what audio hardware this device has...';
+                        QV('p22levelwrap', false);
+                        break;
+                    }
                     if (desktop && desktop.State == 3) {
                         // "Unavailable" collapses two very different causes: the
                         // remote device genuinely has no mic (caps.captureAvailable
@@ -9231,8 +9240,34 @@
         // agents/meshcore.js's micConsentHandleStart() for where this is
         // actually honoured (still gated on the agent's own policy-aware JS
         // layer, never a native-side auto-grant).
+        // deskMic.start() fails straight to 'unavailable' when caps have not
+        // arrived, and caps only arrive in response to a query. agent-desktop
+        // sends that query from ProcessScreenMsg() -- off the back of a video
+        // frame -- but starting from this panel deliberately pauses video, so
+        // that query may never be sent at all. Asking explicitly and holding
+        // the press until the answer lands is what keeps this from reporting
+        // a perfectly good microphone as missing.
+        var p22PendingStart = false;
+
+        function p22StartMic() {
+            if (!deskMic) return;
+            if (deskMic.caps) { p22PendingStart = false; deskMic.start(true); }
+            else { p22PendingStart = true; deskMic.query(); }
+            p22UpdateStatus();
+        }
+
+        // Called from the MNG_MIC_CAPS handler in connectDesktop(): replays a
+        // press that arrived before the agent had answered.
+        function p22CapsArrived(caps) {
+            if (!p22PendingStart) return;
+            p22PendingStart = false;
+            if (deskMic && caps && caps.captureAvailable) { deskMic.start(true); }
+        }
+
         function p22Toggle(event) {
             if (event) { event.stopPropagation(); }
+            // A press while a start is still queued behind caps cancels it.
+            if (p22PendingStart) { p22PendingStart = false; p22UpdateStatus(); return; }
             if (deskMic && (deskMic.state == 'live' || deskMic.state == 'requesting')) { deskMic.stop(); return; }
 
             if (desktop == null) {
@@ -9250,13 +9285,13 @@
                     if ((state == 3) && (xdesktop === desktop)) {
                         if (!desktop._quickStartWantsVideo && desktop.m && desktop.m.SendPause) { desktop.m.SendPause(); }
                         p22QueryDevices();
-                        if (deskMic) { deskMic.start(true); }
+                        p22StartMic();
                     }
                     p22UpdateStatus();
                 };
             } else if (desktop.State == 3) {
                 p22QueryDevices();
-                if (deskMic) { deskMic.start(true); }
+                p22StartMic();
             }
             // else: already connecting, wait for onStateChanged above
             p22UpdateStatus();
@@ -9517,10 +9552,28 @@
         // (userConsentFlags.camprompt / the per-device Camera consent
         // checkbox), never something the browser asks for on the operator's
         // behalf. See camConsentHandleStart() in agents/meshcore.js.
+        // Same caps race the Mic panel has -- see p22StartMic() for why the
+        // press has to be held until the agent answers the capability query.
+        var p23PendingStart = false;
+
+        function p23StartCam() {
+            if (!deskCam) return;
+            if (deskCam.caps) { p23PendingStart = false; deskCam.start(false); }
+            else { p23PendingStart = true; deskCam.query(); }
+            p23UpdateStatus();
+        }
+
+        function p23CapsArrived(caps) {
+            if (!p23PendingStart) return;
+            p23PendingStart = false;
+            if (deskCam && caps && caps.captureAvailable) { deskCam.start(false); }
+        }
+
         function p23Toggle(event) {
             if (event) { event.stopPropagation(); }
+            if (p23PendingStart) { p23PendingStart = false; p23UpdateStatus(); return; }
             if (deskCam && (deskCam.state == 'live' || deskCam.state == 'requesting')) { deskCam.stop(); p23UpdateStatus(); return; }
-            p23EnsureSession(function () { if (deskCam) { deskCam.start(false); } });
+            p23EnsureSession(p23StartCam);
             p23UpdateStatus();
         }
 
@@ -9617,8 +9670,15 @@
                     p23SetStatus('Waiting for the device user to allow camera access...');
                     break;
                 case 'unavailable':
-                    btn.value = 'Start Camera';
-                    p23SetStatus((desktop && desktop.State == 3) ? 'This device has no usable camera.' : 'Not connected.');
+                    btn.value = p23PendingStart ? 'Cancel' : 'Start Camera';
+                    // As in the Mic panel: 'unavailable' before the agent has
+                    // answered the capability query means "not known yet", not
+                    // "no camera".
+                    if (desktop && (desktop.State == 3) && deskCam && !deskCam.caps) {
+                        p23SetStatus('Checking what camera this device has...');
+                    } else {
+                        p23SetStatus((desktop && desktop.State == 3) ? 'This device has no usable camera.' : 'Not connected.');
+                    }
                     break;
                 default: // idle
                     btn.value = 'Start Camera';
@@ -11349,7 +11409,7 @@
                         deskMic.onStateChanged = deskMicApplyState;
                         deskMic.onLevel = deskMicApplyLevel;
                         deskMic.applySettings(micsettings); // seed the persisted/default profile before the first start()
-                        desktop.m.onMicCaps = function(caps) { deskMic.onCaps(caps); };
+                        desktop.m.onMicCaps = function(caps) { deskMic.onCaps(caps); p22CapsArrived(caps); p22UpdateStatus(); };
                         desktop.m.onMicData = function(view) { deskMic.onData(view); };
                         desktop.m.onMicDeviceList = function(devices) { p22DeviceListReceived(devices); };
                         desktop.onMicConsent = function(granted) { if (!granted) { deskMic.onConsentDenied(); } };
@@ -11381,6 +11441,7 @@
                             // microphone: an agent that has no camera gives
                             // the button nothing to do.
                             QV('DeskCamButton', !!(caps && caps.captureAvailable));
+                            p23CapsArrived(caps);
                             p23UpdateStatus();
                         };
                         desktop.m.onCamData = function(frame) { deskCam.onData(frame); };
