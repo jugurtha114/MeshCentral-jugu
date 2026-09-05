@@ -22,6 +22,8 @@
     <script type="text/javascript" src="scripts/agent-redir-ws-0.1.1{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/agent-desktop-0.0.2{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/agent-audio-0.1.0{{{min}}}.js"></script>
+    <script type="text/javascript" src="scripts/agent-mic-0.1.0{{{min}}}.js"></script>
+    <script type="text/javascript" src="scripts/agent-camera-0.1.0{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/amt-0.2.0{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/amt-redir-ws-0.1.0{{{min}}}.js"></script>
     <script type="text/javascript" src="scripts/amt-desktop-0.0.2{{{min}}}.js"></script>
@@ -1029,6 +1031,38 @@
                             </div>
                         </div>
                     </div>
+                    <!-- Mic panel. Laid out like p10desktop above: a fixed
+                         action bar on top, content filling what is left. The
+                         microphone rides the desktop connection, so pressing
+                         Listen opens that connection if it is not already up
+                         (video stays paused -- nobody is looking at it from
+                         here). The device's own user still has to accept
+                         before anything is captured. -->
+                    <div id=p10mic style="overflow-y:auto;position:absolute;top:55px;bottom:0px;width:100%;display:none">
+                        <div style="padding:6px 8px;background:#C0C0C0">
+                            <input type=button id=p10micStartStop value="Listen" onclick=p10micToggle() style="height:28px" />
+                            <span class=textOverGray id=p10micStatus>Disconnected</span>
+                        </div>
+                        <div id=p10micLevelWrap style="display:none;margin:12px 8px;height:10px;border-radius:5px;overflow:hidden;background:rgba(0,0,0,0.15)">
+                            <div id=p10micLevel style="width:0;height:100%;background:#43a047;transition:width 90ms ease-out"></div>
+                        </div>
+                        <div id=p10micInfo style="margin:12px 8px;color:#444;font-size:12px"></div>
+                    </div>
+
+                    <!-- Camera panel. Same shape as the Desktop panel: action
+                         bar, then a black stage that letterboxes the feed. -->
+                    <div id=p10camera style="overflow:hidden;position:absolute;top:55px;bottom:0px;width:100%;display:none">
+                        <div style="position:absolute;top:0px;width:100%;height:34px;padding:3px 8px;background:#C0C0C0;box-sizing:border-box">
+                            <input type=button id=p10camStartStop value="Start" onclick=p10camToggle() style="height:28px" />
+                            <input type=button id=p10camSnap value="Photo" onclick=p10camSnapshot() style="height:28px" />
+                            <span class=textOverGray id=p10camStatus>Disconnected</span>
+                        </div>
+                        <div style="position:absolute;top:34px;bottom:0px;width:100%;background-color:#000;display:flex;align-items:center;justify-content:center;overflow:hidden">
+                            <canvas id=p10camCanvas style="max-width:100%;max-height:100%;object-fit:contain"></canvas>
+                            <div id=p10camPlaceholder style="position:absolute;color:#888;font-size:13px;text-align:center;padding:12px">The camera is not running.</div>
+                        </div>
+                    </div>
+
                     <div id="termButtonMenu" style="display:none;position:absolute;top:10px;left:10px;right:55px;bottom:10px;z-index:1000"></div>
                     <div id=p10terminal style="overflow:hidden;position:absolute;top:55px;bottom:0px;width:100%;display:none;background-color:#333">
                         <div id=termTable style="position:absolute;top:0;bottom:0;left:0;right:0">
@@ -3803,6 +3837,11 @@
         }
 
         var currentDevicePanel = 0;
+        // Mic and Camera listeners for the current desktop connection. Created
+        // in connectDesktop(), cleared with the connection in
+        // onDesktopStateChange(); null whenever there is no connection.
+        var deskMic = null;
+        var deskCam = null;
         var currentNode;
         var powerTimelineNode = null;
         var powerTimelineReq = null;
@@ -4167,6 +4206,8 @@
             QV('p10details', currentDevicePanel == 3);
             QV('p10console', currentDevicePanel == 4);
             QV('p10terminal', currentDevicePanel == 5);
+            QV('p10mic', currentDevicePanel == 7);
+            QV('p10camera', currentDevicePanel == 8);
             var menus = [];
             if (currentDevicePanel != 0) { menus.push({ n: "General", f: 'setupDeviceMenu(0)' }); }
 
@@ -4182,6 +4223,21 @@
                 (((currentNode.agent == null) && (currentNode.intelamt) && ((typeof currentNode.intelamt.sku !== 'number') || ((currentNode.intelamt.sku & 8) != 0))) || (currentNode.agent && (currentNode.agent.caps & 2)))
             ) { menus.push({ n: "Terminal", f: 'setupDeviceMenu(5)' }); }
 
+            // Mic and Camera ride the agent's desktop channel, so they are
+            // offered under the same rights and capability bit the Desktop
+            // entry above uses, and only for real agents (no Intel AMT path).
+            // Whether the device actually has a microphone or camera is not
+            // known until the agent reports its capabilities over that
+            // connection, so the panels themselves say so once opened rather
+            // than the entry being hidden here.
+            if ((currentDevicePanel != 7) && (currentNode != null) && (currentNode.agent != null) && (currentNode.agent.caps & 1) &&
+                ((meshrights & 8) || (meshrights & 256)) && ((meshrights == 0xFFFFFFFF) || ((meshrights & 65536) == 0))
+            ) { menus.push({ n: "Mic", f: 'setupDeviceMenu(7)' }); }
+
+            if ((currentDevicePanel != 8) && (currentNode != null) && (currentNode.agent != null) && (currentNode.agent.caps & 1) &&
+                ((meshrights & 8) || (meshrights & 256)) && ((meshrights == 0xFFFFFFFF) || ((meshrights & 65536) == 0))
+            ) { menus.push({ n: "Camera", f: 'setupDeviceMenu(8)' }); }
+
             if ((currentDevicePanel != 2) && (currentNode != null) && (meshrights & 8) && ((meshrights == 0xFFFFFFFF) || ((meshrights & 1024) == 0)) && ((currentNode.mtype != 1) && (currentNode.agent) && (currentNode.agent.caps & 4))) { menus.push({ n: "Files", f: 'setupDeviceMenu(2)' }); }
             if ((currentDevicePanel != 6) && (currentNode != null) && (currentNode.agent != null) && (meshrights & 8) && ((meshrights == 0xFFFFFFFF) || ((meshrights & 4194304) == 0))) { menus.push({ n: "Registry", f: 'setupDeviceMenu(6)' }); }
             if ((currentDevicePanel != 3) && (currentNode != null) && (currentNode.mtype < 3) && ((meshrights & 1048576) != 0)) { menus.push({ n: "Details", f: 'setupDeviceMenu(3)' }); }
@@ -4190,6 +4246,8 @@
             updateCurrentUrl();
             if (currentDevicePanel == 6) { setupRegistry(); }
             if (currentDevicePanel == 1) { deskAdjust(); }
+            if (currentDevicePanel == 7) { p10micUpdateStatus(); }
+            if (currentDevicePanel == 8) { p10camUpdateStatus(); }
         }
 
         function deviceActionFunction() {
@@ -4745,6 +4803,203 @@
             return r.split('\n').join('<br />') + '<br /><br />';
         }
 
+        //
+        // MIC PANEL (currentDevicePanel 7)
+        //
+        // Both this and the Camera panel below are deliberately thin: the
+        // desktop-template versions (p22/p23 in default.handlebars) carry
+        // device pickers, encoder profiles and photo settings, none of which
+        // earn their screen space on a phone. What is here is the part that
+        // matters -- start, stop, and an honest status line.
+        //
+
+        // Opening a panel never connects anything; pressing the button does.
+        // That matches how Desktop/Terminal/Files behave in this template,
+        // and it matters more here: a microphone or camera that opened itself
+        // would be a surveillance bug, not a convenience.
+        //
+        // Mirrors p23EnsureSession() in default.handlebars: one press both
+        // opens the connection and runs the action once it is up, rather than
+        // making the operator press again after connecting. Video is left
+        // paused throughout -- these panels show no desktop, so streaming
+        // frames nobody looks at would just burn the phone's data and battery.
+        function p10EnsureSession(then) {
+            if (desktop != null) {
+                // A connection still coming up already has a handler from
+                // whichever panel started it; that one will run this.
+                if (desktop.State == 3) { then(); }
+                return true;
+            }
+            connectDesktop(null, 3);
+            if (desktop == null) return false; // e.g. no rights; connectDesktop already reported it
+            if (desktop.m) { desktop.m.autoUnpauseOnConnect = false; }
+            var origOnStateChanged = desktop.onStateChanged;
+            desktop.onStateChanged = function (xdesktop, state) {
+                if (origOnStateChanged) { origOnStateChanged(xdesktop, state); }
+                if ((state == 3) && (xdesktop === desktop)) {
+                    if (desktop.m && desktop.m.SendPause) { desktop.m.SendPause(); }
+                    then();
+                }
+                p10micUpdateStatus();
+                p10camUpdateStatus();
+            };
+            return true;
+        }
+
+        function p10micToggle() {
+            if (deskMic && ((deskMic.state == 'live') || (deskMic.state == 'requesting'))) { deskMic.stop(); p10micUpdateStatus(); return; }
+            // start(true) matches the desktop template's Mic panel: this
+            // panel shows no video, so there is nothing for an interactive
+            // prompt to sit on top of. The agent's own policy layer still
+            // decides whether to capture -- see micConsentHandleStart() in
+            // agents/meshcore.js.
+            p10EnsureSession(function () { if (deskMic) { deskMic.start(true); } });
+            p10micUpdateStatus();
+        }
+
+        function p10micApplyState(state, detail) {
+            p10micUpdateStatus();
+            if (detail) { p10micSetInfo(detail); }
+        }
+
+        function p10micApplyLevel(level) {
+            var bar = Q('p10micLevel');
+            if (bar) { bar.style.width = Math.min(100, Math.round(level * 140)) + '%'; }
+        }
+
+        function p10micSetInfo(text) { var el = Q('p10micInfo'); if (el) { el.textContent = text || ''; } }
+
+        function p10micUpdateStatus() {
+            var btn = Q('p10micStartStop'), status = Q('p10micStatus');
+            if (!btn || !status) return;
+            var state = deskMic ? deskMic.state : 'unavailable';
+
+            if (desktop == null) {
+                btn.value = 'Listen';
+                btn.disabled = false;
+                status.textContent = 'Disconnected';
+                QV('p10micLevelWrap', false);
+                p10micSetInfo('Press Listen to connect to this device and ask its user for the microphone.');
+                return;
+            }
+
+            switch (state) {
+                case 'live':
+                    btn.value = 'Stop';
+                    btn.disabled = false;
+                    status.textContent = 'Listening';
+                    QV('p10micLevelWrap', true);
+                    break;
+                case 'requesting':
+                    btn.value = 'Cancel';
+                    btn.disabled = false;
+                    status.textContent = 'Waiting for the user';
+                    QV('p10micLevelWrap', false);
+                    p10micSetInfo("Waiting for the device's user to allow microphone access.");
+                    break;
+                case 'unavailable':
+                    btn.value = 'Listen';
+                    btn.disabled = true;
+                    status.textContent = 'Unavailable';
+                    QV('p10micLevelWrap', false);
+                    // 'unavailable' covers two unrelated causes and saying the
+                    // wrong one sends people looking at the wrong machine: the
+                    // module needs WebCodecs AudioDecoder, which Safari lacks
+                    // -- and every iOS browser is Safari underneath, so on an
+                    // iPhone this is the usual reason rather than the device
+                    // genuinely having no microphone.
+                    p10micSetInfo((typeof AudioDecoder === 'undefined')
+                        ? "This browser can't play the audio. Safari and every iOS browser lack the decoder this needs -- try Chrome or Firefox on Android, or a desktop browser."
+                        : 'This device reports no usable microphone.');
+                    break;
+                default: // idle
+                    btn.value = 'Listen';
+                    btn.disabled = false;
+                    status.textContent = 'Connected';
+                    QV('p10micLevelWrap', false);
+                    p10micSetInfo("Press Listen to ask this device's user for the microphone.");
+                    break;
+            }
+        }
+
+        //
+        // CAMERA PANEL (currentDevicePanel 8)
+        //
+
+        function p10camToggle() {
+            if (deskCam && ((deskCam.state == 'live') || (deskCam.state == 'requesting'))) { deskCam.stop(); p10camUpdateStatus(); return; }
+            // start(false): unlike the microphone, the camera always shows the
+            // device's user an interactive prompt. Being watched without
+            // knowing is the thing this feature must never allow.
+            p10EnsureSession(function () { if (deskCam) { deskCam.start(false); } });
+            p10camUpdateStatus();
+        }
+
+        // A still does not need the live stream running, so this never starts
+        // it -- the agent still gates the capture on its user's consent.
+        function p10camSnapshot() {
+            p10EnsureSession(function () { if (deskCam) { deskCam.takeSnapshot(); } });
+        }
+
+        // Phones have no useful "save as" dialog, so hand the photo to the
+        // browser as a normal download and let the OS put it where it goes.
+        function p10camSnapshotReceived(snap) {
+            if (!snap || !snap.url) return;
+            var name = 'camera-' + new Date().toISOString().replace(/[:.]/g, '-') + '.jpg';
+            var a = document.createElement('a');
+            a.href = snap.url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function p10camApplyState(state, detail) { p10camUpdateStatus(); }
+
+        function p10camUpdateStatus() {
+            var btn = Q('p10camStartStop'), snap = Q('p10camSnap'), status = Q('p10camStatus');
+            if (!btn || !snap || !status) return;
+            var state = deskCam ? deskCam.state : 'unavailable';
+            var live = (state == 'live');
+
+            QV('p10camPlaceholder', !live);
+
+            if (desktop == null) {
+                btn.value = 'Start';
+                btn.disabled = false;
+                snap.disabled = true;
+                status.textContent = 'Disconnected';
+                return;
+            }
+
+            switch (state) {
+                case 'live':
+                    btn.value = 'Stop';
+                    btn.disabled = false;
+                    snap.disabled = false;
+                    status.textContent = 'Live';
+                    break;
+                case 'requesting':
+                    btn.value = 'Cancel';
+                    btn.disabled = false;
+                    snap.disabled = true;
+                    status.textContent = 'Waiting for the user';
+                    break;
+                case 'unavailable':
+                    btn.value = 'Start';
+                    btn.disabled = true;
+                    snap.disabled = true;
+                    status.textContent = 'No camera';
+                    break;
+                default: // idle
+                    btn.value = 'Start';
+                    btn.disabled = false;
+                    snap.disabled = false;
+                    status.textContent = 'Connected';
+                    break;
+            }
+        }
+
         function connectDesktop(e, contype, tsid, consent) {
             setSessionActivity();
             QV('p11DeskSessionSelector', false);
@@ -4797,6 +5052,32 @@
                     desktop.m.FrameRateTimer = desktopsettings.framerate;
                     desktop.m.onDisplayinfo = deskDisplayInfo;
                     desktop.m.onScreenSizeChange = function (o, x, y) { if (fullscreen) { QS('deskarea3').width = (x * fullscreenzoom) + 'px'; QS('deskarea3').height = (y * fullscreenzoom) + 'px'; } deskAdjust(); }
+
+                    // Mic and Camera share this connection. Both are created
+                    // here but neither is ever auto-started: they begin only
+                    // on an explicit press in their panel, and then only once
+                    // the device's own user accepts. Guarded on the module
+                    // being present so this template still works if either
+                    // script fails to load.
+                    if (typeof CreateAgentMic !== 'undefined') {
+                        deskMic = CreateAgentMic(desktop);
+                        deskMic.onStateChanged = p10micApplyState;
+                        deskMic.onLevel = p10micApplyLevel;
+                        desktop.m.onMicCaps = function (caps) { deskMic.onCaps(caps); p10micUpdateStatus(); };
+                        desktop.m.onMicData = function (view) { deskMic.onData(view); };
+                        desktop.onMicConsent = function (granted) { if (!granted) { deskMic.onConsentDenied(); } };
+                    }
+                    if (typeof CreateAgentCamera !== 'undefined') {
+                        deskCam = CreateAgentCamera(desktop);
+                        deskCam.setCanvas(Q('p10camCanvas'));
+                        deskCam.onStateChanged = p10camApplyState;
+                        deskCam.onSnapshot = p10camSnapshotReceived;
+                        desktop.m.onCamCaps = function (caps) { deskCam.onCaps(caps); p10camUpdateStatus(); };
+                        desktop.m.onCamData = function (frame) { deskCam.onData(frame); };
+                        desktop.m.onCamSnapshot = function (snap) { deskCam.onSnapshotData(snap); };
+                        desktop.onCamConsent = function (granted) { if (!granted) { deskCam.onConsentDenied(); } };
+                    }
+
                     desktop.Start(desktopNode._id);
                     desktop.contype = 1;
                 } else if (contype == 3) {
@@ -4860,6 +5141,15 @@
                     // Disconnect and clean up the remote desktop
                     desktop.Stop();
                     desktopNode = desktop = null;
+                    // The mic and camera ride this connection, so they die
+                    // with it -- dropping the references here keeps their
+                    // panels from acting on a listener whose transport is
+                    // already gone. The mic module exposes stop() rather
+                    // than a dispose(); the camera has both.
+                    if (deskMic) { try { deskMic.stop(); } catch (ex) { } deskMic = null; }
+                    if (deskCam) { try { deskCam.dispose(); } catch (ex) { } deskCam = null; }
+                    p10micUpdateStatus();
+                    p10camUpdateStatus();
                     QV('DeskScreens', false);
                     if (fullscreen == true) { deskToggleFull(); }
                     break;
