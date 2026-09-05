@@ -4174,34 +4174,25 @@ a {
     #DeskCamButton.micRequesting .desktopButtons { animation: none; opacity: 0.6; }
 }
 
-/* --- Mobile-first responsive audio/camera tabs (p22, p23) --- */
-/* Both tabs now follow responsive design: single-column on mobile,
-   collapsible settings (accordion), touch-friendly controls (44px+ targets),
-   ARIA labels, and viewport-aware video scaling. Light+night modes included. */
+/* --- Mic & Camera panel layout (p22, p23) ----------------------------- */
+/* SCOPE, because getting this wrong caused a real regression: this template
+   (default.handlebars) is served to desktops and tablets only. Phones get
+   views/default-mobile.handlebars, which carries its own Mic/Camera panels
+   built to that file's conventions -- see getRenderPage()/isMobileBrowser()
+   in webserver.js, which routes on "mobile" appearing in the User-Agent.
+   So everything here is written desktop-first, and every touch-sizing rule
+   lives inside the max-width query below rather than at the top level.
+   Applying those 44px targets and 16px fonts unconditionally is what
+   previously inflated the desktop controls. */
 
 #p22main, #p23main {
     max-height: calc(100vh - 135px);
     overflow-y: auto;
-    /* Mobile: single column. Desktop: side-by-side via flex-wrap */
-    padding: 0 max(12px, env(safe-area-inset-left));
 }
 
-#p22title, #p23title {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 0;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-#p22title h1, #p23title h1 {
-    flex: 1;
-    font-size: 20px;
-    margin: 0;
-}
-
-/* Settings container: collapse/expand on mobile */
+/* Settings cards. Plain always-open panels on desktop -- the collapsible
+   accordion affordance is added only in the narrow-window case below, so the
+   header here is a caption rather than a control. */
 .mic-settings, .cam-settings {
     margin-top: 16px;
     border: 1px solid rgba(128,128,128,0.35);
@@ -4211,41 +4202,18 @@ a {
 }
 
 .settings-header {
-    padding: 12px 14px;
+    padding: 10px 14px;
     background: rgba(128,128,128,0.08);
     font-weight: 600;
-    font-size: 14px;
-    cursor: pointer;
+    font-size: 13px;
     user-select: none;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 44px;
     gap: 8px;
 }
 
-.settings-header::after {
-    content: '▼';
-    transform: rotate(-90deg);
-    transition: transform 0.2s ease;
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    font-size: 12px;
-}
-
-.settings-header[aria-expanded="true"]::after {
-    transform: rotate(0deg);
-}
-
-.settings-content {
-    padding: 14px;
-    display: none;
-}
-
-.settings-header[aria-expanded="true"] + .settings-content {
-    display: block;
-}
+.settings-content { padding: 14px; }
 
 .night .settings-header { background: rgba(255,255,255,0.08); }
 .night .mic-settings, .night .cam-settings {
@@ -4253,83 +4221,48 @@ a {
     background: rgba(255,255,255,0.03);
 }
 
-/* Touch-friendly controls (44px minimum tap target) */
 #p22toolbar, #p23toolbar {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 12px;
+    align-items: center;
 }
 
-#p22toolbar input[type=button],
-#p23toolbar input[type=button],
-#p23mtoolbar input[type=button] {
-    min-height: 44px;
-    padding: 10px 16px;
-    font-size: 14px;
-    flex: 1 1 auto;
-    min-width: 120px;
-}
-
-/* Input fields: mobile-optimized */
-#p22settings select, #p22settings input[type=number],
-#p23device, #p23preset, #p23resolution, #p23fps, #p23quality,
-#p23photores, #p23photoquality,
-#p23snapformat {
-    min-height: 40px;
-    font-size: 16px;  /* Prevents zoom on iOS input focus */
-    padding: 8px 10px;
-    box-sizing: border-box;
+/* Controls inside a settings card fill its column rather than sizing to
+   content -- the card is a narrow sidebar. Height and font are deliberately
+   left at the browser default so these match every other form control in the
+   app on desktop. */
+.mic-settings select, .mic-settings input[type=number],
+.cam-settings select, .cam-settings input[type=number],
+.cam-settings input[type=range] {
     width: 100%;
+    box-sizing: border-box;
 }
 
-/* Ranges (quality sliders): mobile-friendly thumb size */
-input[type=range] {
-    min-height: 44px;
-    cursor: pointer;
-    accent-color: #003366;
-}
+#p23photoquality { accent-color: #003366; }
 
-/* Status bar wraps on narrow screens */
 #p22statusText, #p23statusBar {
     word-wrap: break-word;
     overflow-wrap: break-word;
 }
 
-/* Camera feed viewport: responsive */
-#p23viewport {
-    max-height: 60vh;  /* Mobile-friendly height; fullscreen overrides */
-}
-
-/* Photo strip scrolls on mobile */
 #p23photoroll {
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;  /* Smooth momentum scroll on iOS */
+    -webkit-overflow-scrolling: touch;
 }
 
-/* Mic level bar responsive */
-#p22levelwrap {
-    max-width: 100%;
-    width: 100%;
-}
+#p22levelwrap { width: 100%; }
 
-/* Mobile-first: settings start COLLAPSED by default (aria-expanded=false) */
-.settings-content {
-    display: none !important;
-}
-
-.settings-header[aria-expanded="true"] + .settings-content {
-    display: block !important;
-}
-
-/* On small screens (mobile), collapse two-column to single column */
+/* Narrow windows and tablet portrait -- a resized desktop window or an iPad,
+   NOT a phone (see the scope note above). */
 @media (max-width: 768px) {
     #p23twoCol {
         flex-direction: column;
         gap: 12px;
     }
 
-    #p23left, body:not(.fulldesk) #p23right {
+    #p23left, body:not(.p23-fs) #p23right {
         flex: 1 1 100% !important;
         min-width: 100% !important;
         max-width: none !important;
@@ -4339,20 +4272,50 @@ input[type=range] {
         max-width: 100%;
     }
 
-    /* Stack settings vertically on mobile */
-    #p22advanced > label,
-    #p23advanced > div {
+    .mic-settings, .cam-settings { margin-top: 12px; }
+
+    #p22advanced > label, #p22advanced > div,
+    #p23advanced > label, #p23advanced > div {
         margin-bottom: 10px;
     }
 
-    /* Full-width selects on mobile */
-    #p22device, #p22preset,
-    #p23device, #p23preset {
-        width: 100%;
+    /* Settings collapse to an accordion here: vertical space is scarce enough
+       that an always-open settings card would push the panel's actual controls
+       off-screen. Excluded while fullscreen, where the drawer rules further
+       down own these same elements instead. */
+    body:not(.p23-fs) .settings-header {
+        cursor: pointer;
+        min-height: 44px;
     }
+    body:not(.p23-fs) .settings-header::after {
+        content: '+';
+        font-size: 16px;
+        line-height: 1;
+    }
+    body:not(.p23-fs) .settings-header[aria-expanded="true"]::after {
+        content: '\2212'; /* minus -- "collapse", vs "+" for expand */
+    }
+    body:not(.p23-fs) .settings-content { display: none; }
+    body:not(.p23-fs) .settings-header[aria-expanded="true"] + .settings-content { display: block; }
+
+    /* Touch sizing, deliberately scoped here rather than at the top level. */
+    #p22toolbar input[type=button],
+    #p23toolbar input[type=button],
+    #p23mtoolbar input[type=button] {
+        min-height: 44px;
+        padding: 10px 16px;
+        flex: 1 1 auto;
+        min-width: 120px;
+    }
+    .mic-settings select, .mic-settings input[type=number],
+    .cam-settings select, .cam-settings input[type=number] {
+        min-height: 40px;
+        font-size: 16px; /* below 16px, iPadOS zooms the page on focus */
+    }
+    .topbar_td:active { transform: scale(0.96); }
 }
 
-/* Tablet and up: expand two-column side-by-side */
+/* Tablet landscape and up: two-column side-by-side */
 @media (min-width: 769px) {
     #p23twoCol {
         display: flex;
@@ -4370,18 +4333,6 @@ input[type=range] {
         flex: 0 0 260px;
         min-width: 220px;
         max-width: 320px;
-    }
-
-    .settings-header {
-        cursor: default;  /* No toggle on desktop — settings always visible */
-    }
-
-    .settings-header::after {
-        display: none;
-    }
-
-    .settings-content {
-        display: block !important;
     }
 
     #p22main, #p23main {
@@ -4488,19 +4439,7 @@ input[type=range] {
     }
 }
 
-/* --- Settings sheet / drawer chrome (shared by p22 and p23) ------------ */
-/* .settings-content is used three ways depending on context (see
-   toggleSettingsAccordion()/settingsSheetIsOverlay() in default.handlebars):
-   inline on desktop, a bottom sheet on phones, or -- for the Camera panel
-   only -- content inside the fullscreen slide-in drawer. The drag handle,
-   sheet header and close button below are part of that same markup but only
-   ever rendered in the two overlay presentations; desktop hides them since
-   the inline panel already has its own header via .settings-header. */
-.settings-sheet-bar,
-.settings-sheet-head {
-    display: none;
-}
-
+/* Backdrop behind the Camera fullscreen settings drawer. */
 #settingsSheetBackdrop {
     display: none;
     position: fixed;
@@ -4509,101 +4448,34 @@ input[type=range] {
     z-index: 1180;
 }
 
-body.settings-sheet-open,
 body.p23-drawer-open {
-    overflow: hidden; /* lock background scroll while a sheet/drawer is open */
+    overflow: hidden; /* lock background scroll while the drawer is open */
 }
 
-@media (max-width: 768px) {
-    /* Bottom sheet: mobile, not fullscreen. Fullscreen (any width) uses the
-       drawer rules further below instead, so this is explicitly scoped off
-       when body.fulldesk is present to avoid the two presentations fighting
-       over the same element. */
-    body:not(.fulldesk) .cam-settings .settings-content,
-    body:not(.fulldesk) .mic-settings .settings-content {
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        top: auto;
-        z-index: 1190;
-        max-height: 80vh;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        margin: 0;
-        border-radius: 14px 14px 0 0;
-        box-shadow: 0 -8px 32px rgba(0,0,0,0.35);
-        background: #fff;
-        padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
-        box-sizing: border-box;
-    }
-    body:not(.fulldesk) .settings-sheet-bar {
-        display: block;
-        width: 36px;
-        height: 4px;
-        border-radius: 2px;
-        background: rgba(128,128,128,0.4);
-        margin: 4px auto 10px;
-    }
-    body:not(.fulldesk) .settings-sheet-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 12px;
-    }
-    body:not(.fulldesk) .settings-sheet-title {
-        font-weight: 600;
-        font-size: 15px;
-    }
-    body:not(.fulldesk) .settings-sheet-close {
-        border: none;
-        background: rgba(128,128,128,0.12);
-        width: 32px;
-        height: 32px;
-        min-height: 32px;
-        border-radius: 50%;
-        font-size: 18px;
-        line-height: 1;
-        cursor: pointer;
-        color: inherit;
-    }
-    /* The original header stays as the (now purely mobile) trigger; it is
-       shown inline above where the panel's content used to expand, and its
-       own chevron still communicates open/closed state. */
-    body:not(.fulldesk) .settings-header::after {
-        content: '+';
-        transform: none;
-        font-size: 16px;
-    }
-    body:not(.fulldesk) .settings-header[aria-expanded="true"]::after {
-        content: '\2212'; /* minus sign, avoids implying further expansion once it's a sheet */
-    }
-    /* Night mode: the sheet is a solid card floating over the page (unlike
-       the desktop inline panel, which just tints its existing wrapper), so
-       it needs its own explicit dark background here -- scoped to the same
-       not(.fulldesk) bottom-sheet case as the rules above, so plain desktop
-       night mode keeps its existing subtler inline tint (from
-       .night .cam-settings / .night .mic-settings) unchanged. */
-    body.night:not(.fulldesk) .cam-settings .settings-content,
-    body.night:not(.fulldesk) .mic-settings .settings-content {
-        background: #161616;
-        color: #ddd;
-    }
-    body.night:not(.fulldesk) .settings-sheet-close {
-        background: rgba(255,255,255,0.14);
-    }
-    body.night:not(.fulldesk) .settings-sheet-bar {
-        background: rgba(255,255,255,0.3);
-    }
+.settings-sheet-close {
+    border: none;
+    background: rgba(128,128,128,0.12);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    color: inherit;
 }
+.night .settings-sheet-close { background: rgba(255,255,255,0.14); }
 
 .night #settingsSheetBackdrop { background: rgba(0,0,0,0.65); }
 
 /* --- Camera fullscreen settings drawer (p23 only) ---------------------- */
 /* Fullscreen replaces the inline side panel with a floating gear button
    (.p23-fab, over the video stage) that slides #p23right in from the edge
-   as a drawer instead -- satisfies "fullscreen should not show settings"
-   while keeping them one tap away, on both phone and desktop fullscreen. */
+   as a drawer instead -- so fullscreen isn't permanently giving up screen
+   space to settings, while keeping them one click away.
+   Scoped to body.p23-fs, a class p23FullToggle() sets specifically for the
+   Camera panel -- NOT to .fulldesk, which the Desktop and Terminal tabs'
+   own deskToggleFull() also sets. Keying off the shared class would let
+   those tabs' fullscreen drag this panel's chrome in with it. */
 .p23-fab {
     display: none;
     position: absolute;
@@ -4625,7 +4497,7 @@ body.p23-drawer-open {
 .p23-fab:hover { background: rgba(0,0,0,0.75); }
 .p23-fab:focus-visible { outline: 2px solid #4da3ff; outline-offset: 2px; }
 
-body.fulldesk .p23-fab {
+body.p23-fs .p23-fab {
     display: flex;
 }
 
@@ -4640,7 +4512,7 @@ body.fulldesk .p23-fab {
     font-size: 15px;
 }
 
-body.fulldesk #p23right {
+body.p23-fs #p23right {
     display: block;
     position: fixed;
     top: 0;
@@ -4660,23 +4532,23 @@ body.fulldesk #p23right {
     transform: translateX(100%);
     transition: transform 0.25s ease;
 }
-body.fulldesk.p23-drawer-open #p23right {
+body.p23-fs.p23-drawer-open #p23right {
     transform: translateX(0);
 }
-body.fulldesk #p23right .p23-drawer-head {
+body.p23-fs #p23right .p23-drawer-head {
     display: flex;
 }
 /* Inside the drawer both sections are just always-expanded, non-interactive
    labels -- the drawer's own close button is the single toggle, so a second
    layer of per-section collapsing would only add confusion. */
-body.fulldesk #p23right .settings-header {
+body.p23-fs #p23right .settings-header {
     cursor: default;
     pointer-events: none;
 }
-body.fulldesk #p23right .settings-header::after {
+body.p23-fs #p23right .settings-header::after {
     display: none;
 }
-body.fulldesk #p23right .settings-content {
+body.p23-fs #p23right .settings-content {
     display: block !important;
     position: static !important;
     box-shadow: none;
@@ -4687,12 +4559,7 @@ body.fulldesk #p23right .settings-content {
     background: transparent;
     color: inherit;
 }
-body.fulldesk #p23right .settings-sheet-bar,
-body.fulldesk #p23right .settings-sheet-head {
-    display: none; /* the drawer-head above already provides the title/close */
-}
-
-body.night.fulldesk #p23right {
+body.night.p23-fs #p23right {
     background: #161616;
     color: #ddd;
 }
@@ -4701,23 +4568,17 @@ body.night.fulldesk #p23right {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    body.fulldesk #p23right { transition: none; }
+    body.p23-fs #p23right { transition: none; }
 }
 
-/* --- Tap feedback (mobile touch affordance) ---------------------------- */
-#p22toolbar input[type=button]:active,
-#p23toolbar input[type=button]:active,
-#p23mtoolbar input[type=button]:active,
-.topbar_td:active,
+/* Tap feedback, limited to the two controls this feature adds -- deliberately
+   not applied to the shared toolbar buttons or tab cells, so nothing about
+   the existing desktop chrome changes. */
 .p23-fab:active,
 .settings-sheet-close:active {
     transform: scale(0.96);
 }
 @media (prefers-reduced-motion: reduce) {
-    #p22toolbar input[type=button]:active,
-    #p23toolbar input[type=button]:active,
-    #p23mtoolbar input[type=button]:active,
-    .topbar_td:active,
     .p23-fab:active,
     .settings-sheet-close:active {
         transform: none;
