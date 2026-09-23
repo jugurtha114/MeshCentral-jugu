@@ -285,8 +285,8 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                 parent.GetNodeWithRights(domain, user, agent.dbNodeKey, function (node, rights, visible) {
                     var mesh = parent.meshes[agent.dbMeshKey];
                     if ((node != null) && (mesh != null) && ((rights & MESHRIGHT_REMOTECONTROL) || (rights & MESHRIGHT_REMOTEVIEWONLY))) { // 8 is remote control permission, 256 is desktop read only
-                        if ((requiredRights != null) && ((rights & requiredRights) == 0)) { if (func) { func(false); return; } } // Check Required Rights
-                        if ((requiredNonRights != null) && (rights != MESHRIGHT_ADMIN) && ((rights & requiredNonRights) != 0)) { if (func) { func(false); return; } } // Check Required None Rights
+                        if ((requiredRights != null) && ((rights & requiredRights) == 0)) { if (func) { func(false); } return; } // Check Required Rights
+                        if ((requiredNonRights != null) && (rights != MESHRIGHT_ADMIN) && ((rights & requiredNonRights) != 0)) { if (func) { func(false); } return; } // Check Required None Rights
 
                         command.sessionid = ws.sessionId;   // Set the session id, required for responses
                         command.rights = rights;            // Add user rights flags to the message
@@ -326,8 +326,8 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                 if (routing != null) {
                     // Check if we have permission to send a message to that node
                     parent.GetNodeWithRights(domain, user, command.nodeid, function (node, rights, visible) {
-                        if ((requiredRights != null) && ((rights & requiredRights) == 0)) { if (func) { func(false); return; } } // Check Required Rights
-                        if ((requiredNonRights != null) && (rights != MESHRIGHT_ADMIN) && ((rights & requiredNonRights) != 0)) { if (func) { func(false); return; } } // Check Required None Rights
+                        if ((requiredRights != null) && ((rights & requiredRights) == 0)) { if (func) { func(false); } return; } // Check Required Rights
+                        if ((requiredNonRights != null) && (rights != MESHRIGHT_ADMIN) && ((rights & requiredNonRights) != 0)) { if (func) { func(false); } return; } // Check Required None Rights
 
                         var mesh = parent.meshes[routing.meshid];
                         if ((node != null) && (mesh != null) && ((rights & MESHRIGHT_REMOTECONTROL) || (rights & MESHRIGHT_REMOTEVIEWONLY))) { // 8 is remote control permission
@@ -1031,11 +1031,15 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                         if (url == null) break; // Bad URL
                         if (url.searchParams.get('nodeid') && (url.searchParams.get('nodeid') != command.nodeid)) break; // Bad NodeID in URL query string
 
-                        // Check rights
-                        if (url.searchParams.get('p') == '1') { requiredNonRights = MESHRIGHT_NOTERMINAL; }
+                        // Check rights. All four terminal protocols (1 admin shell, 6 admin PowerShell, 8 user shell, 9 user PowerShell)
+                        // are covered by "no terminal", the same rule the agent enforces.
+                        if (['1', '6', '8', '9'].indexOf(url.searchParams.get('p')) >= 0) { requiredNonRights = MESHRIGHT_NOTERMINAL; }
                         else if (url.searchParams.get('p') == '4') { requiredNonRights = MESHRIGHT_NOREGISTRY; }
                         else if (url.searchParams.get('p') == '5') { requiredNonRights = MESHRIGHT_NOFILES; }
-                        else if (url.searchParams.get('p') == '6') { requiredNonRights = MESHRIGHT_NOSOFTWARE; }
+
+                        // A port tunnel lets the user reach any TCP/UDP service the agent can connect to. routeCommandToNode() also accepts
+                        // view-only users, so require the same rights as meshrelay.ashx?tcpport= does: remote control or relay.
+                        if ((command.tcpport != null) || (command.udpport != null)) { requiredRights = (MESHRIGHT_REMOTECONTROL | MESHRIGHT_RELAY); }
 
                         // If we are using the desktop multiplexor, remove the VIEWONLY limitation. The multiplexor will take care of enforcing that limitation when needed.
                         if (((parent.parent.config.settings.desktopmultiplex === true) || (domain.desktopmultiplex === true)) && (url.searchParams.get('p') == '2')) { routingOptions = { removeViewOnlyLimitation: true }; }
