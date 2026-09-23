@@ -895,7 +895,7 @@
                                     <div id="terminalCustomUiButtons" style="float:left"></div>
                                 </div>
                                 <div>
-                                    <input type="button" id="autoconnectbutton2" value="AutoConnect" onclick=autoConnectTerminal(event) onkeypress="return false" onkeydown="return false" style="display:none" /><span id="connectbutton2span" style="margin-right:4px"><input type="button" id="connectbutton2" cmenu="termConnectButton" value="Connect" onclick=connectTerminal(event,1) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="connectbutton2sspan" style="margin-right:4px"><input type="button" id="connectbutton2s" cmenu=sshPortContextMenu value="SSH Connect" onclick=connectTerminal(event,3) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="connectbutton2hspan" style="margin-right:4px"><input type="button" id="connectbutton2h" value="HW Connect" title="Connect using Intel&reg; AMT hardware KVM" onclick=connectTerminal(event,2) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="disconnectbutton2span" style="margin-right:4px"><input type="button" id="disconnectbutton2" value="Disconnect" onclick=connectTerminal(event,0) onkeypress="return false" onkeydown="return false" /></span>
+                                    <input type="button" id="autoconnectbutton2" value="AutoConnect" onclick=autoConnectTerminal(event) onkeypress="return false" onkeydown="return false" style="display:none" /><span id="connectbutton2span" style="margin-right:4px"><input type="button" id="connectbutton2" cmenu="termConnectButton" value="Connect" onclick=connectTerminal(event,1) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="connectbutton2sspan" style="margin-right:4px"><input type="button" id="connectbutton2s" cmenu=sshPortContextMenu value="SSH Connect" onclick=connectTerminal(event,3) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="connectbutton2hspan" style="margin-right:4px"><input type="button" id="connectbutton2h" value="HW Connect" title="Connect using Intel&reg; AMT hardware KVM" onclick=connectTerminal(event,2) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="disconnectbutton2span" style="margin-right:4px"><input type="button" id="disconnectbutton2" value="Disconnect" onclick=connectTerminal(event,0) onkeypress="return false" onkeydown="return false" /></span><span id="localterm2span" style="margin-right:4px;display:none"><input type="button" id="localterm2" value="Local Terminal" title="Use your own terminal, ssh, scp and rsync with this device" onclick=showLocalTerminalDialog() onkeypress="return false" onkeydown="return false" /></span>
                                     <span id="termstatus" style="line-height:22px">Disconnected</span><span id="termtitle"></span>
                                 </div>
                             </td>
@@ -2037,6 +2037,7 @@
         var authCookieRenewTimer = null;
         var multiDesktop = {};
         var serverPublicNamePort = '{{{serverDnsName}}}:{{{serverPublicPort}}}';
+        var webCertPin = '{{{webcertpin}}}'; // Public key pin of this server's certificate for the meshtunnel setup commands, empty if unknown
         var amtScanResults = null;
         var debugmode = 0;
         var windowsBrowser = detectWindowsBrowser();
@@ -12782,6 +12783,10 @@
                 QV('terminalSizeDropDown', (termState == false) && (terminalNode.intelamt != null) && (terminalNode.intelamt.state == 2) && (terminalNode.intelamt.ver != null));
             }
 
+            // Local Terminal needs an agent, the rights meshrelay.ashx wants for a port tunnel (remote control or relay),
+            // and an account allowed to use tools (the server refuses meshtunnel's logins otherwise).
+            QV('localterm2span', (terminalNode.mtype == 2) && (terminalNode.agent != null) && ((GetNodeRights(terminalNode) & 0x00200008) != 0) && ((userinfo.siteadmin == 0xFFFFFFFF) || ((userinfo.siteadmin & 128) == 0)));
+
             // Enable action button if mesh type is not "local devices"
             QV('termActionsBtn', terminalNode.mtype != 3);
             if (((termState == true) && (terminal.contype != 3)) || (terminalNode.agent == null) || (terminalNode.agent.id == 3) || (terminalNode.agent.id == 4)) {
@@ -12822,6 +12827,89 @@
             QV('pastebutton', !xtermActive);
             QV('devListToolbarViewIcons2', xtermActive);
             QE('termSizeList', terminal == null);
+        }
+
+        //
+        // Local Terminal: reach this device from your own terminal emulator, and with ssh, scp and rsync, through the
+        // meshtunnel command line tool (served by this server at /meshtunnel.js).
+        //
+
+        // The "<handle>.mesh" name of a device. Same rule as slugify() and assignHandles() in meshtunnel.js, keep them in sync.
+        function meshTunnelSlug(name) {
+            var s = String(name || '');
+            if (s.normalize) { s = s.normalize('NFKD'); }
+            s = s.replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '');
+            return (s == '') ? 'device' : s;
+        }
+        function meshTunnelHandle(node) {
+            var slug = meshTunnelSlug(node.name), count = 0, bin = '', hex = '';
+            if (nodes != null) { for (var i in nodes) { if (meshTunnelSlug(nodes[i].name) == slug) { count++; } } }
+            if (count <= 1) return slug;
+            try { bin = atob(node._id.split('/')[2].split('@').join('+').split('$').join('/')); } catch (ex) { }
+            for (var j = 0; j < Math.min(3, bin.length); j++) { hex += ('0' + bin.charCodeAt(j).toString(16)).slice(-2); }
+            return slug + '-' + hex;
+        }
+
+        // The server address, built the same way as the agent install commands (copyAgentUrl)
+        function localTermServerUrl() {
+            var servername = serverinfo.name;
+            if ((servername.indexOf('.') == -1) || ((features & 2) != 0)) { servername = window.location.hostname; }
+            return 'https://' + servername + ((serverinfo.port == 443) ? '' : (':' + serverinfo.port)) + domainUrl;
+        }
+
+        function showLocalTerminalDialog() {
+            if (xxdialogMode || (terminalNode == null)) return;
+            var windows = isWindowsNode(terminalNode);
+            var x = '<div style=margin-bottom:6px>' + "Open this device in your own terminal emulator:" + '</div><div style=margin-bottom:14px><select id=d2localTermShell style=margin-right:6px>';
+            if (windows) { x += '<option value=1>' + "Admin Shell" + '</option><option value=6>' + "Admin PowerShell" + '</option><option value=8>' + "User Shell" + '</option><option value=9>' + "User PowerShell" + '</option>'; }
+            else { x += '<option value=1>' + "Root Shell" + '</option><option value=8>' + "User Shell" + '</option><option value=L>' + "Login Shell" + '</option>'; }
+            x += '</select><input type=button value="' + "Open in my terminal" + '" onclick=localTermOpen() /></div>';
+            x += '<div style=margin-bottom:4px>' + "Commands for this device, as SSH user" + ' <input id=d2localTermUser type=text maxlength=64 style=width:110px oninput=localTermUpdate() value="' + EscapeHtml(getstore(windows ? 'localTermUserW' : 'localTermUser', windows ? 'Administrator' : 'root')) + '" /></div>';
+            x += '<div id=d2localTermCmds style=margin-bottom:4px></div>';
+            x += '<div style=font-size:11px;color:#555;margin-bottom:14px>' + "ssh, scp and rsync go to the device's own SSH server through the tunnel, which can listen on 127.0.0.1 only. The agent shell needs no SSH server." + '</div>';
+            x += '<div style=margin-bottom:4px>' + "One-time setup on your computer (Node.js 16 or newer). The last command asks for your password:" + '</div>';
+            x += '<textarea id=d2localTermSetup readonly=readonly rows=4 style="border-radius:4px;padding:6px;margin-bottom:4px;background-color:#FFF9D3;border:0;width:100%;box-sizing:border-box;resize:none;height:128px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:12px"></textarea>';
+            x += '<a style=text-decoration:none;cursor:pointer title="' + "Copy to clipboard" + '" onclick=copyAgentIdValue("d2localTermSetup")><img src=images/link4.png height=10 width=10> ' + "Copy" + '</a> &nbsp; ';
+            x += '<a href="' + EscapeHtml(domainUrl + 'meshtunnel.js' + (urlargs.key ? ('?key=' + encodeURIComponent(urlargs.key)) : '')) + '" download=meshtunnel.js>' + "Download meshtunnel.js" + '</a> <span style=font-size:11px;color:#555>' + "(on Windows, run it with node meshtunnel.js)" + '</span>';
+            setDialogMode(2, "Local Terminal", 2, null, x);
+            QS('dialog').width = 'min(640px, calc(100% - 20px))';
+            QS('dialog').left = 'max(10px, calc((100% - 640px) / 2))';
+            QS('dialog').top = '80px';
+            localTermUpdate();
+        }
+
+        function localTermUpdate() {
+            if (Q('d2localTermUser') == null) return;
+            var windows = isWindowsNode(terminalNode), h = meshTunnelHandle(terminalNode), user = Q('d2localTermUser').value.trim();
+            putstore(windows ? 'localTermUserW' : 'localTermUser', user);
+            var target = ((user != '') ? (user + '@') : '') + h + '.mesh', cmds = [];
+            cmds.push(["Agent shell", 'meshtunnel shell ' + h + (windows ? ' --powershell' : '')]);
+            cmds.push(["SSH", 'ssh ' + target]);
+            cmds.push(["Copy a file", 'scp ./file ' + target + ':' + (windows ? '' : '/tmp/')]);
+            if (windows == false) { cmds.push(["Sync a folder", 'rsync -avP ./dir/ ' + target + ':/tmp/dir/']); }
+            if (windows) { cmds.push(["Remote desktop", 'meshtunnel forward 13389 ' + h + ' 3389']); } else { cmds.push(["Forward a port", 'meshtunnel forward 8080 ' + h + ' 80']); }
+            var x = '<table style=width:100% cellpadding=0 cellspacing=0>';
+            for (var i = 0; i < cmds.length; i++) {
+                x += '<tr><td style="width:110px;font-size:12px;padding:1px 6px 1px 0">' + cmds[i][0] + '</td><td style=padding:1px><input id=d2ltc' + i + ' type=text readonly=readonly style="width:100%;box-sizing:border-box;border:0;border-radius:3px;padding:3px;background-color:#FFF9D3;font-family:monospace;font-size:12px" value="' + EscapeHtml(cmds[i][1]) + '" /></td>';
+                x += '<td style=width:18px;text-align:right><img src=images/link4.png height=10 width=10 style=cursor:pointer title="' + "Copy to clipboard" + '" onclick=copyAgentIdValue("d2ltc' + i + '")></td></tr>';
+            }
+            QH('d2localTermCmds', x + '</table>');
+
+            // Pin the server's public key when its certificate is not publicly trusted, so no step turns certificate checks off.
+            // meshtunnel runs by full path here, ~/.local/bin may not be on the PATH until the next login.
+            var url = localTermServerUrl(), key = (urlargs.key ? ('?key=' + encodeURIComponent(urlargs.key)) : ''), bin = '~/.local/bin/meshtunnel';
+            var pin = (((features & 0x80000000) != 0) && (webCertPin != '')) ? webCertPin : null;
+            var setup = 'mkdir -p ~/.local/bin && curl -fsS' + (pin ? (' -k --pinnedpubkey \'' + pin + '\'') : '') + ' -o ' + bin + ' \'' + url + 'meshtunnel.js' + key + '\' && chmod 755 ' + bin + '\n';
+            setup += bin + ' ssh-config --install\n' + bin + ' install-handler\n';
+            setup += bin + ' login \'' + url + key + '\'' + (pin ? (' --pin \'' + pin + '\'') : '');
+            Q('d2localTermSetup').value = setup;
+        }
+
+        // Opens the user's terminal through the meshtunnel:// handler that "meshtunnel install-handler" registers.
+        // meshtunnel only acts on links for the server it is logged in to, and validates every field.
+        function localTermOpen() {
+            var shell = Q('d2localTermShell').value, protocol = (shell == 'L') ? 1 : parseInt(shell);
+            downloadFile('meshtunnel://open?s=' + encodeURIComponent(localTermServerUrl()) + '&n=' + encodeURIComponent(terminalNode._id) + '&p=' + protocol + '&l=' + ((shell == 'L') ? 1 : 0) + '&t=' + encodeURIComponent(terminalNode.name));
         }
 
         // Called when the terminal state changes
