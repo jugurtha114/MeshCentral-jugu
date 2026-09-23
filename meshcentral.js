@@ -3225,7 +3225,8 @@ function CreateMeshCentralServer(config, args) {
         1: { id: 1, localname: 'meshinstall-linux.sh', rname: 'meshinstall.sh', linux: true },
         2: { id: 2, localname: 'meshinstall-initd.sh', rname: 'meshagent', linux: true },
         5: { id: 5, localname: 'meshinstall-bsd-rcd.sh', rname: 'meshagent', linux: true },
-        6: { id: 6, localname: 'meshinstall-linux.js', rname: 'meshinstall.js', linux: true }
+        6: { id: 6, localname: 'meshinstall-linux.js', rname: 'meshinstall.js', linux: true },
+        7: { id: 7, localname: 'meshinstall-linux-oneline.sh', rname: 'meshinstall.sh', linux: true, template: true } // Only served filled in, see "meshagents?script=1&meshid=" in webserver.js
     };
 
     // Update the list of available mesh agents

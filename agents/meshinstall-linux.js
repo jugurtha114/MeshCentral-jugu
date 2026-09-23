@@ -145,6 +145,10 @@ if (msh.InstallFlags == null)
     msh.InstallFlags = parseInt(msh.InstallFlags.toString());
 }
 
+// A "Background only" installer installs (or updates) straight away when run with no command, rather
+// than asking which button to press. Root is still required, as for "-install".
+var autoInstall = ((msh.InstallFlags & 3) == 2) && !['-install', '-update', '-uninstall', '-connect', '-help', '-mesh', '-translations'].some(function (a) { return (process.argv.includes(a)); });
+
 if (process.argv.includes('-mesh'))
 {
     console.log(JSON.stringify(msh, null, 2));
@@ -155,7 +159,7 @@ if (process.argv.includes('-translations'))
     console.log(JSON.stringify(translation));
     process.exit();
 }
-if (process.argv.includes('-help') || (process.platform == 'linux' && process.env['XAUTHORITY'] == null && process.env['DISPLAY'] == null && process.argv.length == 1))
+if (process.argv.includes('-help') || (!autoInstall && process.platform == 'linux' && process.env['XAUTHORITY'] == null && process.env['DISPLAY'] == null && process.argv.length == 1))
 {
     console.log("\n" + translation[lang].commands + ": ");
     if ((msh.InstallFlags & 1) == 1)
@@ -222,7 +226,7 @@ if ((!skip) && ((msh.InstallFlags & 2) == 2))
 
     if (!skip)
     {
-        if (process.argv.includes('-install') || process.argv.includes('-update'))
+        if (autoInstall || process.argv.includes('-install') || process.argv.includes('-update'))
         {
             var p = [];
             for (var i = 0; i < process.argv.length; ++i)

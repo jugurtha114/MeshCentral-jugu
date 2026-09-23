@@ -6112,6 +6112,47 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         });
     }
 
+    // Send the Linux/BSD install script already set up for one device group, so a device is added with a
+    // single command: wget -qO- 'https://server/meshagents?script=1&meshid=GROUP' | sh (&uninstall=1 removes it)
+    function sendAgentInstallScript(req, res, domain) {
+        const scriptInfo = obj.parent.meshAgentInstallScripts[7];
+        if ((scriptInfo == null) || (typeof req.query.meshid != 'string') || (/^[A-Za-z0-9@$=_-]{1,1024}$/.test(req.query.meshid) == false)) { try { res.sendStatus(404); } catch (ex) { } return; }
+
+        // The device group can also be a time limited invitation cookie, the invitation page uses those
+        var meshid = req.query.meshid;
+        const meshcookie = obj.parent.decodeCookie(meshid, obj.parent.invitationLinkEncryptionKey);
+        if ((meshcookie != null) && (meshcookie.m != null)) { meshid = meshcookie.m; }
+        const mesh = obj.meshes['mesh/' + domain.id + '/' + meshid];
+        if ((mesh != null) && (obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true))) {
+            if ((domain.id != mesh.domain) || ((obj.GetMeshRights(req.session.userid, mesh) & 1) == 0)) { try { res.sendStatus(401); } catch (ex) { } return; }
+        }
+
+        // Agent files come from the server address the web UI puts in the command: its configured name, or the name
+        // this request came in on if the server has none (same rule as addAgentToMesh() in default.handlebars).
+        var serverName = (domain.dns != null) ? domain.dns : obj.certificates.CommonName;
+        if ((typeof serverName != 'string') || (serverName.indexOf('.') == -1) || (obj.args.lanonly == true)) {
+            serverName = (typeof req.headers.host == 'string') ? req.headers.host : '';
+            serverName = serverName.startsWith('[') ? serverName.substring(0, serverName.indexOf(']') + 1) : serverName.split(':')[0];
+        }
+        const httpsPort = (obj.args.aliasport != null) ? obj.args.aliasport : obj.args.port;
+        const serverUrl = 'https://' + serverName + ((httpsPort == 443) ? '' : (':' + httpsPort)) + domain.url.substring(0, domain.url.length - 1);
+        if (/^https:\/\/([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:\d+)?(\/[A-Za-z0-9._~-]+)*$/.test(serverUrl) == false) { try { res.sendStatus(400); } catch (ex) { } return; }
+
+        // Answer a stale link with a script that says so: "wget -q" would otherwise hide an HTTP error completely.
+        setContentDispositionHeader(res, 'application/octet-stream', scriptInfo.rname, null, 'meshinstall.sh');
+        if (mesh == null) { res.send('#!/bin/sh\necho "Error: this install command is no longer valid, copy a new one from MeshCentral." >&2\nexit 1\n'); return; }
+
+        const options = { curloptions: '', wgetoptions: '', fetchoptions: '' };
+        if (obj.isTrustedCert(domain) != true) { options.curloptions += '-k '; options.wgetoptions += '--no-check-certificate '; options.fetchoptions += '--no-verify-peer '; }
+        if (domain.agentnoproxy === true) { options.curloptions += '--noproxy \'*\' '; options.wgetoptions += '--no-proxy '; options.fetchoptions += '-d '; }
+        options.agenturl = serverUrl + '/meshagents?id=';
+        options.mshurl = serverUrl + '/meshsettings?id=' + encodeURIComponent(req.query.meshid);
+        options.action = (req.query.uninstall == 1) ? 'uninstall' : 'install';
+        var data = scriptInfo.data;
+        for (var i in options) { data = data.split('{{{' + i + '}}}').join(options[i]); }
+        res.send(data);
+    }
+
     // Handle a request to download a mesh agent
     obj.handleMeshAgentRequest = function (req, res) {
         var domain = getDomain(req, res);
@@ -6280,10 +6321,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             }
         } else if (req.query.script != null) {
             if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { try { res.sendStatus(404); } catch (ex) { } return; } // Check 3FA URL key
+            if ((req.query.script == 1) && (req.query.meshid != null)) { sendAgentInstallScript(req, res, domain); return; } // Install script already set up for one device group
 
             // Send a specific mesh install script back
             var scriptInfo = obj.parent.meshAgentInstallScripts[req.query.script];
-            if (scriptInfo == null) { try { res.sendStatus(404); } catch (ex) { } return; }
+            if ((scriptInfo == null) || (scriptInfo.template === true)) { try { res.sendStatus(404); } catch (ex) { } return; }
             setContentDispositionHeader(res, 'application/octet-stream', scriptInfo.rname, null, 'script');
             var data = scriptInfo.data;
             var cmdoptions = { wgetoptionshttp: '', wgetoptionshttps: '', curloptionshttp: '-L ', curloptionshttps: '-L ' }
