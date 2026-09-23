@@ -1710,7 +1710,11 @@ NoMeshesPanel img {
     gap: 8px;
     padding: 10px 14px;
     border-bottom: 1px solid rgba(128,128,128,0.3);
+    cursor: move;
+    user-select: none;
+    touch-action: none;
 }
+#p23modal.p23-dragging { user-select: none; }
 #p23mtitle { font-size: 15px; font-weight: 600; flex: 1; }
 #p23mlive {
     display: none;
@@ -1732,6 +1736,7 @@ NoMeshesPanel img {
     padding: 0 4px;
     border-radius: 4px;
 }
+#p23mclose { cursor: pointer; }
 #p23mclose:hover { background: rgba(128,128,128,0.2); color: #333; }
 .night #p23mclose:hover { color: #fff; }
 

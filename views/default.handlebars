@@ -1475,7 +1475,7 @@
                  and shares the panel's start/stop/snapshot/recording logic,
                  so both surfaces always agree about the camera's state. -->
             <div id=p23modal role="dialog" aria-label="Camera" aria-hidden="true">
-                <div id=p23mhead>
+                <div id=p23mhead onpointerdown=p23ModalDragStart(event)>
                     <span id=p23mlive><span class=dot></span>LIVE</span>
                     <span id=p23mtitle>Camera</span>
                     <button type=button id=p23mclose aria-label="Close camera" onclick=p23ModalClose(event) onkeypress="if (event.key == 'Enter') p23ModalClose(event)">&times;</button>
@@ -10175,6 +10175,39 @@
         function p23ModalClose(event) {
             if (event) { event.preventDefault(); event.stopPropagation(); }
             p23ModalSetOpen(false);
+        }
+
+        // Lets the operator drag the modal by its header to wherever they want
+        // it on screen. The modal starts centered via CSS transform; the first
+        // drag pins it to an explicit left/top (from its current on-screen
+        // rect) and drops the transform, so it stays wherever it's left even
+        // across further opens/closes within the session.
+        function p23ModalDragStart(event) {
+            if (event.target && event.target.id == 'p23mclose') { return; }
+            var el = Q('p23modal');
+            if (!el || event.button != null && event.button !== 0) { return; }
+            event.preventDefault();
+            var rect = el.getBoundingClientRect();
+            el.style.left = rect.left + 'px';
+            el.style.top = rect.top + 'px';
+            el.style.transform = 'none';
+            el.classList.add('p23-dragging');
+            var startX = event.clientX, startY = event.clientY;
+            var origLeft = rect.left, origTop = rect.top;
+            function onMove(e) {
+                var dx = e.clientX - startX, dy = e.clientY - startY;
+                var maxLeft = Math.max(window.innerWidth - el.offsetWidth, 0);
+                var maxTop = Math.max(window.innerHeight - el.offsetHeight, 0);
+                el.style.left = Math.min(Math.max(origLeft + dx, 0), maxLeft) + 'px';
+                el.style.top = Math.min(Math.max(origTop + dy, 0), maxTop) + 'px';
+            }
+            function onUp() {
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup', onUp);
+                el.classList.remove('p23-dragging');
+            }
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
         }
 
         // deskCam.onFrame fires once per decoded frame with the raw source,
