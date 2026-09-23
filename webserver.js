@@ -200,6 +200,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
     obj.webCertificateHashBase64 = Buffer.from(obj.webCertificateHash, 'binary').toString('base64').replace(/\+/g, '@').replace(/\//g, '$');
     obj.webCertificateFullHash = parent.certificateOperations.getCertHashBinary(obj.certificates.web.cert);
     obj.webCertificateFullHashs = { '': obj.webCertificateFullHash };
+    obj.webCertificatePins = { '': getCertSpkiPin(obj.certificates.web.cert) };
     obj.webCertificateExpire = { '': parent.certificateOperations.getCertificateExpire(parent.certificates.web.cert) };
     obj.agentCertificateHashHex = parent.certificateOperations.getPublicKeyHash(obj.certificates.agent.cert);
     obj.agentCertificateHashBase64 = Buffer.from(obj.agentCertificateHashHex, 'hex').toString('base64').replace(/\+/g, '@').replace(/\//g, '$');
@@ -213,11 +214,13 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             // If the web certificate hash is provided, use it.
             obj.webCertificateHashs[i] = obj.webCertificateFullHashs[i] = Buffer.from(obj.parent.config.domains[i].certhash, 'hex').toString('binary');
             if (obj.parent.config.domains[i].certkeyhash != null) { obj.webCertificateHashs[i] = Buffer.from(obj.parent.config.domains[i].certkeyhash, 'hex').toString('binary'); }
+            obj.webCertificatePins[i] = null; // Only the hash is known, not the certificate
             delete obj.webCertificateExpire[i]; // Expire time is not provided
         } else if ((obj.parent.config.domains[i].dns != null) && (obj.parent.config.domains[i].certs != null)) {
             // If the domain has a different DNS name, use a different certificate hash.
             // Hash the full certificate
             obj.webCertificateFullHashs[i] = parent.certificateOperations.getCertHashBinary(obj.parent.config.domains[i].certs.cert);
+            obj.webCertificatePins[i] = getCertSpkiPin(obj.parent.config.domains[i].certs.cert);
             obj.webCertificateExpire[i] = Date.parse(parent.certificateOperations.forge.pki.certificateFromPem(obj.parent.config.domains[i].certs.cert).validity.notAfter);
             try {
                 // Decode a RSA certificate and hash the public key.
@@ -230,13 +233,25 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             // If this domain has a DNS and a matching DNS cert, use it. This case works for wildcard certs.
             obj.webCertificateFullHashs[i] = parent.certificateOperations.getCertHashBinary(obj.certificates.dns[i].cert);
             obj.webCertificateHashs[i] = parent.certificateOperations.getPublicKeyHashBinary(obj.certificates.dns[i].cert);
+            obj.webCertificatePins[i] = getCertSpkiPin(obj.certificates.dns[i].cert);
             obj.webCertificateExpire[i] = Date.parse(parent.certificateOperations.forge.pki.certificateFromPem(obj.certificates.dns[i].cert).validity.notAfter);
         } else if (i != '') {
             // For any other domain, use the default cert.
             obj.webCertificateFullHashs[i] = obj.webCertificateFullHashs[''];
             obj.webCertificateHashs[i] = obj.webCertificateHashs[''];
+            obj.webCertificatePins[i] = obj.webCertificatePins[''];
             obj.webCertificateExpire[i] = obj.webCertificateExpire[''];
         }
+    }
+
+    // Behind a TLS offloading proxy, browsers and tools see the proxy's certificate, not ours: there is no pin to offer.
+    if (obj.args.tlsoffload) { for (var i in obj.webCertificatePins) { obj.webCertificatePins[i] = null; } }
+
+    // Public key pin of a PEM certificate in curl's --pinnedpubkey format, "sha256//" + base64(SHA-256(SPKI)). The web UI puts
+    // it in the commands that download and log in the meshtunnel tool, so they work against a self-signed certificate
+    // without turning certificate checks off.
+    function getCertSpkiPin(pem) {
+        try { return 'sha256//' + obj.crypto.createHash('sha256').update(new obj.crypto.X509Certificate(pem).publicKey.export({ type: 'spki', format: 'der' })).digest('base64'); } catch (ex) { return null; }
     }
 
     // If we are running the legacy swarm server, compute the hash for that certificate
@@ -3331,6 +3346,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                     customui: customui,
                     customFiles: customFiles,
                     webcerthash: Buffer.from(obj.webCertificateFullHashs[domain.id], 'binary').toString('base64').replace(/\+/g, '@').replace(/\//g, '$'),
+                    webcertpin: obj.webCertificatePins[domain.id] || '',
                     footer: (domain.footer == null) ? '' : obj.common.replacePlaceholders(domain.footer, {
                         'serverversion': obj.parent.currentVer,
                         'servername': obj.getWebServerName(domain, req),
@@ -3984,6 +4000,19 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         parent.debug('web', 'handleRootCertRequest()');
         setContentDispositionHeader(res, 'application/octet-stream', certificates.RootName + '.cer', null, 'rootcert.cer');
         res.send(Buffer.from(getRootCertBase64(), 'base64'));
+    }
+
+    // Serve the meshtunnel command line tool, so any computer can fetch it from this server (the Terminal tab gives the command).
+    // It holds nothing server specific, it is sent exactly as it is on disk.
+    var meshTunnelScript = null;
+    function handleMeshTunnelRequest(req, res) {
+        const domain = getDomain(req);
+        if (domain == null) { parent.debug('web', 'handleMeshTunnelRequest: no domain'); res.sendStatus(404); return; }
+        if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+        if ((obj.userAllowedIp != null) && (checkIpAddressEx(req, res, obj.userAllowedIp, false) === false)) { parent.debug('web', 'handleMeshTunnelRequest: invalid ip'); return; } // Check server-wide IP filter only.
+        if (meshTunnelScript == null) { try { meshTunnelScript = obj.fs.readFileSync(obj.path.join(__dirname, 'meshtunnel.js')); } catch (ex) { res.sendStatus(404); return; } }
+        setContentDispositionHeader(res, 'application/javascript', 'meshtunnel.js', meshTunnelScript.length, 'meshtunnel.js');
+        res.send(meshTunnelScript);
     }
 
     // Return a customised mainifest.json for PWA
@@ -7415,6 +7444,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                 obj.app.get(url + 'userimage.ashx', handleUserImageRequest);
                 obj.app.post(url + 'amtevents.ashx', obj.bodyParser.urlencoded({ extended: false }), obj.handleAmtEventRequest);
                 obj.app.get(url + 'meshagents', obj.handleMeshAgentRequest);
+                obj.app.get(url + 'meshtunnel.js', handleMeshTunnelRequest);
                 obj.app.get(url + 'messenger', handleMessengerRequest);
                 obj.app.get(url + 'messenger.png', handleMessengerImageRequest);
                 obj.app.get(url + 'meshosxagent', obj.handleMeshOsxAgentRequest);
