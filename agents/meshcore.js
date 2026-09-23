@@ -1288,7 +1288,7 @@ function tunnel_checkServerIdentity(certs)
     if ((tunnel_checkServerIdentity.servertlshash != null) && (tunnel_checkServerIdentity.servertlshash.toLowerCase() != certs[0].digest.split(':').join('').toLowerCase())) { throw new Error('BadCert') }
 }
 
-function tunnel_onError()
+function tunnel_onError(e)
 {
     sendConsoleText("ERROR: Unable to connect relay tunnel to: " + this.url + ", " + JSON.stringify(e));
 }
@@ -2441,6 +2441,7 @@ function onTunnelUpgrade(response, s, head)
         if (this.tcpaddr != null) { connectionOptions.host = this.tcpaddr; } else { connectionOptions.host = '127.0.0.1'; }
         s.tcprelay = net.createConnection(connectionOptions, onTcpRelayTargetTunnelConnect);
         s.tcprelay.peerindex = this.index;
+        s.tcprelay.on('error', onTcpRelayTargetTunnelError);
 
         // Add the TCP session to the count and update the server
         if (s.httprequest.userid != null) {
@@ -2450,7 +2451,7 @@ function onTunnelUpgrade(response, s, head)
             broadcastSessionsToRegisteredApps();
         }
     }
-    if (this.udpport != null) {
+    else if (this.udpport != null) {
         // This is a UDP relay connection, get the UDP socket setup. // TODO: ***************
         s.data = onUdpRelayServerTunnelData;
         s.udprelay = require('dgram').createSocket({ type: 'udp4' });
@@ -2502,6 +2503,13 @@ function onTcpRelayTargetTunnelConnect() {
     this.pipe(peerTunnel.s); // Pipe Target --> Server
     peerTunnel.s.first = true;
     peerTunnel.s.resume();
+}
+
+// Called when the TCP relay target can't be reached (refused, unreachable) or fails mid-stream. Close the tunnel
+// right away so the client sees it, instead of leaving the failure to the uncaught exception handler.
+function onTcpRelayTargetTunnelError() {
+    var peerTunnel = tunnels[this.peerindex];
+    if ((peerTunnel != null) && (peerTunnel.s != null)) { try { peerTunnel.s.end(); } catch (ex) { } }
 }
 
 // Called when we get data from the server for a TCP relay (We have to skip the first received 'c' and pipe the rest)
