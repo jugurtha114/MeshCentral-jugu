@@ -689,6 +689,7 @@ function isInteractive() { return (process.stdin.isTTY === true) && (process.std
 async function cmdLogin(a) {
     if (a._.length != 1) { fail('usage: meshtunnel login <server-url> [--pin sha256//...] [--user name] [--expire-days N]'); }
     const server = parseServerUrl(a._[0]);
+    const previous = loadConfig(false);
     let pin = (a.flags.pin != null) ? normalizePin(a.flags.pin) : null;
     let expireDays = 0;
     if (a.flags['expire-days'] != null) { expireDays = parseInt(a.flags['expire-days']); if (!(expireDays >= 0)) { fail('invalid --expire-days'); } }
@@ -736,8 +737,13 @@ async function cmdLogin(a) {
         const account = (ctl.userinfo && ctl.userinfo.name) ? ctl.userinfo.name : user;
         const tokenName = ('meshtunnel@' + os.hostname()).slice(0, 100);
         let r = null;
-        try { r = await ctl.request({ action: 'createLoginToken', name: tokenName, expire: expireDays * 1440, responseid: 'meshtunnel' }, function (m) { return m.action == 'createLoginToken'; }, 20000); }
-        finally { ctl.close(); }
+        try {
+            r = await ctl.request({ action: 'createLoginToken', name: tokenName, expire: expireDays * 1440, responseid: 'meshtunnel' }, function (m) { return m.action == 'createLoginToken'; }, 20000);
+            // Logging in again replaces the token this tool made before: revoke that one rather than leave it valid and forgotten.
+            if (r.tokenUser && (previous != null) && (previous.createdToken === true) && (previous.url == cfg.url) && (typeof previous.user == 'string') && (previous.user != r.tokenUser)) {
+                try { await ctl.request({ action: 'loginTokens', remove: [previous.user] }, function (m) { return m.action == 'loginTokens'; }, 10000); } catch (ex) { }
+            }
+        } finally { ctl.close(); }
         if (!r.tokenUser || !r.tokenPass) { fail('the server refused to create a login token (' + (r.result || 'no reason given') + '). An administrator can allow them (domains > passwordRequirements > loginTokens); an existing token from My Account > Login Tokens also works as the username here.', EXIT.AUTH); }
         saved = Object.assign({}, cfg, { user: r.tokenUser, pass: r.tokenPass, tokenName: tokenName, createdToken: true, account: account });
     }
@@ -747,7 +753,7 @@ async function cmdLogin(a) {
     const online = devices.filter(function (d) { return (d.conn & 1) != 0; }).length;
     process.stderr.write('Logged in to ' + saved.url + ' as ' + (saved.account || 'token user') + ', ' + devices.length + ' device(s), ' + online + ' online.\n');
     process.stderr.write('The ' + (saved.createdToken ? ('login token "' + saved.tokenName + '"') : 'login token') + ' is stored in ' + file + ', revoke it any time in My Account > Login Tokens' + (saved.createdToken ? ' or with: meshtunnel logout' : '') + '.\n');
-    process.stderr.write('Next: meshtunnel ssh-config --install   (then: ssh <user>@<device>.mesh)\n');
+    if (fs.existsSync(path.join(os.homedir(), '.ssh', 'meshtunnel.conf')) == false) { process.stderr.write('Next: meshtunnel ssh-config --install   (then: ssh <user>@<device>.mesh)\n'); }
     return EXIT.OK;
 }
 
@@ -1016,11 +1022,10 @@ function terminalSession(ws, ctl, dev, protocol, requireLogin) {
     });
 }
 
-function sshConfigText(cfg) {
+function sshConfigText() {
     const quote = function (p) { if (p.indexOf('"') >= 0) { fail('cannot write an ssh config for a path containing a double quote: ' + p); } return '"' + p.split('%').join('%%') + '"'; };
     const lines = [
-        '# meshtunnel: reach MeshCentral devices as <device>.mesh (ssh, scp, rsync, sftp)',
-        '# Server: ' + ((cfg != null) ? cfg.url : '(not logged in yet)'),
+        '# meshtunnel: reach MeshCentral devices as <device>.mesh (ssh, scp, rsync, sftp), through the server "meshtunnel login" chose.',
         '# Written by "meshtunnel ssh-config"; run it again if node or meshtunnel moves.',
         'Host *.mesh',
         '    ProxyCommand ' + quote(process.execPath) + ' ' + quote(scriptPath()) + ' proxy %n %p',
@@ -1035,7 +1040,7 @@ function sshConfigText(cfg) {
 }
 
 async function cmdSshConfig(a) {
-    const text = sshConfigText(loadConfig(false));
+    const text = sshConfigText();
     if (a.flags.install !== true) { process.stdout.write(text); return EXIT.OK; }
     const sshDir = path.join(os.homedir(), '.ssh');
     mkdirp(sshDir, 0o700);
