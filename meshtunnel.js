@@ -16,7 +16,7 @@
 /*jshint esversion: 11 */
 'use strict';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 if (parseInt(process.versions.node.split('.')[0]) < 16) { process.stderr.write('meshtunnel needs Node.js 16 or newer, this is ' + process.version + '\n'); process.exit(1); }
 
 const fs = require('fs');
@@ -249,6 +249,46 @@ async function httpsGet(cfg, pathAndQuery) {
     return body;
 }
 
+// A small HTTPS request (used for the setup code and token endpoints). Returns { status, body } whatever the status.
+async function httpsRequest(cfg, method, pathAndQuery, form) {
+    const sp = serverParts(cfg.url);
+    const sock = (await connectTls(cfg.url, cfg.pin)).sock;
+    const body = (form != null) ? Buffer.from(new URLSearchParams(form).toString(), 'utf8') : null;
+    let req = method + ' ' + pathAndQuery + ' HTTP/1.1\r\nHost: ' + sp.hostHeader + '\r\nUser-Agent: meshtunnel/' + VERSION + '\r\nAccept-Encoding: identity\r\nConnection: close\r\n';
+    if (body != null) { req += 'Content-Type: application/x-www-form-urlencoded\r\nContent-Length: ' + body.length + '\r\n'; }
+    sock.write(req + '\r\n');
+    if (body != null) { sock.write(body); }
+    const head = await readHttpHead(sock, 20000);
+    const chunks = [head.rest];
+    await new Promise(function (resolve, reject) { sock.on('data', function (d) { chunks.push(d); }); sock.once('end', resolve); sock.once('close', resolve); sock.once('error', reject); sock.resume(); });
+    let data = Buffer.concat(chunks);
+    if (head.headers['content-length'] != null) { data = data.slice(0, parseInt(head.headers['content-length'])); }
+    return { status: head.status, statusLine: head.statusLine, body: data };
+}
+
+function jsonOrNull(buf) { try { return JSON.parse(buf.toString('utf8')); } catch (ex) { return null; } }
+function keyQuery(cfg) { return cfg.loginkey ? ('?key=' + encodeURIComponent(cfg.loginkey)) : ''; }
+
+// Trade a setup code from the web UI (Terminal tab > Local Terminal) for a login token: no password, no second factor.
+async function redeemSetupCode(cfg, code, previous) {
+    const form = { code: code, name: ('meshtunnel@' + os.hostname()).slice(0, 100) };
+    if ((previous != null) && (previous.createdToken === true) && (previous.url == cfg.url) && (typeof previous.user == 'string') && (typeof previous.pass == 'string')) { form.replaceuser = previous.user; form.replacepass = previous.pass; }
+    const r = await httpsRequest(cfg, 'POST', serverParts(cfg.url).basePath + 'meshtunnel-redeem' + keyQuery(cfg), form);
+    const j = jsonOrNull(r.body);
+    if ((r.status == 200) && j && (typeof j.user == 'string') && (typeof j.pass == 'string')) { return j; }
+    if (r.status == 404) { fail('this server does not accept setup codes (is it older than this tool?), sign in with your password instead: meshtunnel login ' + cfg.url, EXIT.AUTH); }
+    fail((j && j.error) ? j.error : ('the server refused the setup code: ' + r.statusLine), EXIT.AUTH);
+}
+
+// Revoke a login token by presenting it. Returns true if the server removed it (or it was already invalid there).
+async function revokeToken(cfg) {
+    const r = await httpsRequest(cfg, 'POST', serverParts(cfg.url).basePath + 'meshtunnel-revoke' + keyQuery(cfg), { user: cfg.user, pass: cfg.pass });
+    if ((r.status == 200) || (r.status == 403)) { return true; }
+    if (r.status == 404) { return null; } // Older server without this endpoint
+    const j = jsonOrNull(r.body);
+    fail((j && j.error) ? j.error : ('the server answered ' + r.statusLine), EXIT.AUTH);
+}
+
 //
 // WebSocket client (RFC 6455). Only what MeshCentral needs, with explicit flow control:
 // pause()/resume() stop and restart message delivery, sends return false when the socket buffer is full ('drain' follows).
@@ -265,7 +305,7 @@ class WsConn extends EventEmitter {
         if ((head != null) && (head.length > 0)) { this.chunks.push(head); this.buffered = head.length; }
         const self = this;
         sock.on('data', function (d) { self.lastSeen = Date.now(); self.chunks.push(d); self.buffered += d.length; self._parse(); });
-        sock.on('drain', function () { self.emit('drain'); });
+        sock.on('drain', function () { self.lastSeen = Date.now(); self.emit('drain'); }); // The server takes data: it is alive
         sock.on('error', function (e) { self._finish(1006, e.message, new MtError('connection lost: ' + e.message, EXIT.NOTFOUND)); });
         sock.on('end', function () { self._finish(1006, 'end', null); });
         sock.on('close', function () { self._finish(1006, 'closed', null); });
@@ -687,7 +727,7 @@ function isInteractive() { return (process.stdin.isTTY === true) && (process.std
 //
 
 async function cmdLogin(a) {
-    if (a._.length != 1) { fail('usage: meshtunnel login <server-url> [--pin sha256//...] [--user name] [--expire-days N]'); }
+    if (a._.length != 1) { fail('usage: meshtunnel login <server-url> [--pin sha256//...] [--code CODE | --user name] [--expire-days N]'); }
     const server = parseServerUrl(a._[0]);
     const previous = loadConfig(false);
     let pin = (a.flags.pin != null) ? normalizePin(a.flags.pin) : null;
@@ -711,6 +751,10 @@ async function cmdLogin(a) {
     }
 
     const cfg = { url: server.url, loginkey: server.loginkey, pin: (pin || undefined) };
+    if (a.flags.code != null) {
+        const r = await redeemSetupCode(cfg, String(a.flags.code).trim(), previous);
+        return finishLogin(Object.assign({}, cfg, { user: r.user, pass: r.pass, tokenName: r.name, createdToken: true, account: r.account }), true);
+    }
     const user = (a.flags.user != null) ? String(a.flags.user) : (await prompt('Username (or a ~t: login token): ', false)).trim();
     if (user == '') { fail('no username given'); }
     const pass = await prompt(user.startsWith('~t:') ? 'Token password: ' : 'Password: ', true);
@@ -747,14 +791,29 @@ async function cmdLogin(a) {
         if (!r.tokenUser || !r.tokenPass) { fail('the server refused to create a login token (' + (r.result || 'no reason given') + '). An administrator can allow them (domains > passwordRequirements > loginTokens); an existing token from My Account > Login Tokens also works as the username here.', EXIT.AUTH); }
         saved = Object.assign({}, cfg, { user: r.tokenUser, pass: r.tokenPass, tokenName: tokenName, createdToken: true, account: account });
     }
+    return finishLogin(saved);
+}
 
+async function finishLogin(saved, quiet) {
     const file = saveConfig(saved);
     const devices = await fetchDevices(saved);
     const online = devices.filter(function (d) { return (d.conn & 1) != 0; }).length;
     process.stderr.write('Logged in to ' + saved.url + ' as ' + (saved.account || 'token user') + ', ' + devices.length + ' device(s), ' + online + ' online.\n');
     process.stderr.write('The ' + (saved.createdToken ? ('login token "' + saved.tokenName + '"') : 'login token') + ' is stored in ' + file + ', revoke it any time in My Account > Login Tokens' + (saved.createdToken ? ' or with: meshtunnel logout' : '') + '.\n');
-    if (fs.existsSync(path.join(os.homedir(), '.ssh', 'meshtunnel.conf')) == false) { process.stderr.write('Next: meshtunnel ssh-config --install   (then: ssh <user>@<device>.mesh)\n'); }
+    if ((quiet !== true) && (fs.existsSync(path.join(os.homedir(), '.ssh', 'meshtunnel.conf')) == false)) { process.stderr.write('Next: meshtunnel ssh-config --install   (then: ssh <user>@<device>.mesh)\n'); }
     return EXIT.OK;
+}
+
+// Revoke the stored login token on the server. Returns true when it is gone there.
+async function revokeStoredToken(cfg) {
+    const r = await revokeToken(cfg);
+    if (r !== null) { return r; }
+    // Older server without the revoke endpoint: ask over the control channel.
+    const ctl = await controlConnect(cfg, { user: cfg.user, pass: cfg.pass });
+    try {
+        const list = await ctl.request({ action: 'loginTokens', remove: [cfg.user] }, function (m) { return m.action == 'loginTokens'; }, 15000);
+        return !(list.loginTokens || []).some(function (t) { return t.tokenUser == cfg.user; });
+    } finally { ctl.close(); }
 }
 
 async function cmdLogout() {
@@ -762,13 +821,7 @@ async function cmdLogout() {
     if (cfg == null) { note('not logged in'); return EXIT.OK; }
     let revoked = false;
     if (cfg.createdToken === true) {
-        try {
-            const ctl = await controlConnect(cfg, { user: cfg.user, pass: cfg.pass });
-            try {
-                const r = await ctl.request({ action: 'loginTokens', remove: [cfg.user] }, function (m) { return m.action == 'loginTokens'; }, 15000);
-                revoked = !(r.loginTokens || []).some(function (t) { return t.tokenUser == cfg.user; });
-            } finally { ctl.close(); }
-        } catch (e) { note('could not revoke the login token on the server: ' + e.message); }
+        try { revoked = await revokeStoredToken(cfg); } catch (e) { note('could not revoke the login token on the server: ' + e.message); }
     }
     try { fs.unlinkSync(configFile()); } catch (ex) { }
     try { fs.unlinkSync(deviceCacheFile()); } catch (ex) { }
@@ -1054,7 +1107,61 @@ async function cmdSshConfig(a) {
         note('added "Include meshtunnel.conf" at the top of ' + main);
     }
     note('wrote ' + confFile);
-    process.stderr.write('Now use devices as <handle>.mesh, the handles are listed by "meshtunnel ls":\n  ssh root@web01.mesh\n  scp ./file root@web01.mesh:/tmp/\n  rsync -avP ./dir/ root@web01.mesh:/tmp/dir/\n');
+    process.stderr.write('Now use devices as <handle>.mesh (handles are listed by "meshtunnel ls"), e.g.:\n  ssh root@web01.mesh\n  scp ./file.txt root@web01.mesh:/tmp/\n  rsync -avz ./folder/ root@web01.mesh:/srv/folder/\n');
+    return EXIT.OK;
+}
+
+// Remove what "ssh-config --install" added: meshtunnel.conf and its Include line (with the blank line written after it).
+function removeSshConfig() {
+    const sshDir = path.join(os.homedir(), '.ssh');
+    try { fs.unlinkSync(path.join(sshDir, 'meshtunnel.conf')); note('removed ' + path.join(sshDir, 'meshtunnel.conf')); } catch (ex) { }
+    try {
+        const main = fs.realpathSync(path.join(sshDir, 'config'));
+        const lines = fs.readFileSync(main, 'utf8').split('\n');
+        const isInclude = function (l) { return /^\s*Include\s+("?)(~\/\.ssh\/)?meshtunnel\.conf\1\s*$/i.test(l); };
+        let kept = lines;
+        if ((lines.length > 1) && isInclude(lines[0]) && (lines[1] == '')) { kept = lines.slice(2); } else { kept = lines.filter(function (l) { return isInclude(l) == false; }); }
+        if (kept.length != lines.length) { writeFileAtomic(main, kept.join('\n'), fs.statSync(main).mode & 0o777); note('removed "Include meshtunnel.conf" from ' + main); }
+    } catch (ex) { }
+}
+
+// The PATH line the installer may have added to shell startup files, marked with this comment.
+const PATH_MARK = '# added by meshtunnel';
+function removePathLines() {
+    for (const rc of ['.bashrc', '.zshrc']) {
+        const f = path.join(os.homedir(), rc);
+        try {
+            const text = fs.readFileSync(f, 'utf8'), kept = text.split('\n').filter(function (l) { return l.trimEnd().endsWith(PATH_MARK) == false; }).join('\n');
+            if (kept != text) { writeFileAtomic(f, kept, fs.statSync(f).mode & 0o777); note('removed the meshtunnel PATH line from ' + f); }
+        } catch (ex) { }
+    }
+}
+
+// Undo the setup on this computer: revoke the login token, remove the ssh config, the link handler, the settings, and the
+// copy of meshtunnel the installer put in place (a copy run from anywhere else is left alone).
+async function cmdUninstall() {
+    const cfg = loadConfig(false);
+    if ((cfg != null) && (cfg.createdToken === true)) {
+        try { note((await revokeStoredToken(cfg)) ? ('login token "' + cfg.tokenName + '" revoked') : ('revoke login token "' + cfg.tokenName + '" in My Account > Login Tokens')); }
+        catch (e) { note('could not revoke the login token on the server (' + e.message + '), revoke "' + cfg.tokenName + '" in My Account > Login Tokens'); }
+    }
+    if (process.platform != 'darwin') { try { await cmdUninstallHandler(); } catch (ex) { } }
+    removeSshConfig();
+    try { fs.unlinkSync(configFile()); } catch (ex) { }
+    try { fs.rmdirSync(path.dirname(configFile())); } catch (ex) { } // Only if empty
+    for (const f of ['devices.json', 'handler.log']) { try { fs.unlinkSync(path.join(cacheDir(), f)); } catch (ex) { } }
+    try { fs.rmdirSync(cacheDir()); } catch (ex) { }
+    const self = scriptPath();
+    if (process.platform == 'win32') {
+        const dir = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'meshtunnel');
+        if (path.dirname(self).toLowerCase() == dir.toLowerCase()) { try { fs.rmSync(dir, { recursive: true, force: true }); note('removed ' + dir + ' (its bin folder may stay listed in your PATH, that is harmless)'); } catch (ex) { note('could not remove ' + dir + ': ' + ex.message); } }
+        else { note('left ' + self + ' in place, it was not installed by the setup command'); }
+    } else {
+        removePathLines();
+        if (self == path.join(os.homedir(), '.local', 'bin', 'meshtunnel')) { try { fs.unlinkSync(self); note('removed ' + self); } catch (ex) { note('could not remove ' + self + ': ' + ex.message); } }
+        else { note('left ' + self + ' in place, it was not installed by the setup command'); }
+    }
+    note('meshtunnel is uninstalled from this computer');
     return EXIT.OK;
 }
 
@@ -1230,16 +1337,18 @@ async function cmdUpdate() {
 //
 
 const HELP = [
-    'meshtunnel ' + VERSION + ': your own terminal, ssh, scp and rsync for MeshCentral devices',
+    'meshtunnel ' + VERSION + ': your own terminal and ssh for MeshCentral devices',
     '',
-    'Setup (once per computer)',
-    '  login <server-url> [--pin sha256//...] [--user NAME] [--expire-days N]',
-    '                      Sign in; stores a revocable login token, never your password',
+    'Setup (once per computer; the web UI gives a one-line setup command in the Terminal tab > Local Terminal)',
+    '  login <server-url> [--pin sha256//...] [--code CODE | --user NAME] [--expire-days N]',
+    '                      Sign in with a setup code from the web UI, or with your password.',
+    '                      Stores a revocable login token, never your password',
     '  ssh-config [--install]',
     '                      Print, or install into ~/.ssh, the config that makes <device>.mesh hosts work',
     '  install-handler     Let the web UI\'s "Open in my terminal" button open your terminal (Linux, Windows)',
     '  uninstall-handler   Remove that link handler',
     '  logout              Revoke the stored login token and forget the server',
+    '  uninstall           Undo the setup: revoke the token, remove the ssh config, the link handler and this tool',
     '  update              Replace this script with the version served by the server',
     '',
     'Devices',
@@ -1253,10 +1362,13 @@ const HELP = [
     '                      Relay stdin/stdout to a port of the device (the ssh ProxyCommand)',
     '',
     'Examples',
-    '  ssh root@web01.mesh',
-    '  scp backup.tar.gz root@web01.mesh:/tmp/',
-    '  rsync -avP ./site/ root@web01.mesh:/var/www/site/',
-    '  meshtunnel forward 8080 web01 80',
+    '  ssh root@web01.mesh                            SSH (VS Code Remote-SSH, sftp and git use web01.mesh too)',
+    '  scp ./app.tar.gz root@web01.mesh:/tmp/         copy a file to the device',
+    '  scp root@web01.mesh:/var/log/syslog .          copy a file from the device',
+    '  rsync -avz ./site/ root@web01.mesh:/var/www/   sync a folder',
+    '  ssh -D 1080 -N root@web01.mesh                 SOCKS proxy into the device\'s network',
+    '  meshtunnel shell web01                         the agent\'s own shell, no SSH server needed',
+    '  meshtunnel forward 8080 web01 80               then open http://localhost:8080',
     '',
     'A device is a handle from "meshtunnel ls", its exact name, or its node id.',
     'Exit codes: 0 ok, 1 usage, 2 login or rights, 3 device not found or offline, 4 nothing listening on the device port, 5 certificate problem.',
@@ -1264,8 +1376,9 @@ const HELP = [
 ].join('\n');
 
 const COMMANDS = {
-    'login': { spec: { 'pin': 'value', 'user': 'value', 'expire-days': 'value' }, run: cmdLogin },
+    'login': { spec: { 'pin': 'value', 'user': 'value', 'expire-days': 'value', 'code': 'value' }, run: cmdLogin },
     'logout': { spec: {}, run: cmdLogout },
+    'uninstall': { spec: {}, run: cmdUninstall },
     'ls': { spec: { 'json': 'bool' }, run: cmdLs },
     'proxy': { spec: { 'to': 'value' }, run: cmdProxy },
     'forward': { spec: { 'bind': 'value', 'to': 'value' }, run: cmdForward },
@@ -1309,10 +1422,14 @@ async function main(argv) {
     return c.run(args);
 }
 
-main(process.argv.slice(2)).then(function (code) {
-    process.exit((typeof code == 'number') ? code : EXIT.OK);
-}, function (err) {
-    if (err instanceof MtError) { note(err.message); process.exit(err.code); }
-    note('unexpected error: ' + ((err && err.stack) ? err.stack : err));
-    process.exit(EXIT.USAGE);
-});
+if (require.main === module) {
+    main(process.argv.slice(2)).then(function (code) {
+        process.exit((typeof code == 'number') ? code : EXIT.OK);
+    }, function (err) {
+        if (err instanceof MtError) { note(err.message); process.exit(err.code); }
+        note('unexpected error: ' + ((err && err.stack) ? err.stack : err));
+        process.exit(EXIT.USAGE);
+    });
+} else {
+    module.exports = { VERSION: VERSION, slugify: slugify, assignHandles: assignHandles, idHex: idHex, parseServerUrl: parseServerUrl, normalizePin: normalizePin, parseArgs: parseArgs }; // For the tests
+}
