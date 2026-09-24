@@ -4,6 +4,7 @@
     "plugins":{
       "enabled": false
     },
+    "_taskmanager": false,
     "cert": "myserver.mydomain.com",
     "_WANonly": true,
     "_LANonly": true,

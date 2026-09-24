@@ -167,6 +167,20 @@ function dynamic_config() {
         sed -i 's/"plugins":/"_plugins":/g' "$CONFIG_FILE"
     fi
 
+    # TASKMANAGER ("My Tasks": scripts that run on devices as soon as they connect)
+    TASK_MANAGER=${TASK_MANAGER,,}
+    if [[ "$TASK_MANAGER" =~ ^(true|false)$ ]]; then
+        echo "Setting taskmanager... $TASK_MANAGER"
+
+        sed -i 's/"_taskmanager"/"taskmanager"/' "$CONFIG_FILE"
+        jq --argjson task_manager "$TASK_MANAGER" \
+            '.settings.taskmanager = $task_manager' \
+            "$CONFIG_FILE" > temp_config.json && mv temp_config.json "$CONFIG_FILE"
+    else
+        echo "Invalid or no TASK_MANAGER value given, commenting out so default applies... Value(s) given: ${TASK_MANAGER:-empty}"
+        sed -i 's/"taskmanager":/"_taskmanager":/g' "$CONFIG_FILE"
+    fi
+
     # WEBRTC
     WEBRTC=${WEBRTC,,}
     if [[ "$WEBRTC" =~ ^(true|false)$ ]]; then

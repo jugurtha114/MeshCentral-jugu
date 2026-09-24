@@ -743,6 +743,9 @@
             overflow-y: scroll;
         }
 
+        /* "My Tasks" status chips (this template does not load style.css) */
+        .p6chip { display: inline-block; color: #fff; border-radius: 3px; padding: 1px 6px; margin: 1px 3px 1px 0; font-size: 12px; white-space: nowrap; }
+
     </style>
 </head>
 <body id="body" onload="if (typeof(startup) !== 'undefined') startup();" style="overflow-y:hidden;margin:0;padding:0;border:0;font-size:13px;font-family:\'Trebuchet MS\', Arial, Helvetica, sans-serif">
@@ -915,6 +918,30 @@
                                 <td id="p5rightOfButtons" style="text-align:right;padding:3px"></td>
                             </tr>
                         </table>
+                    </div>
+                </div>
+                <div id=p6 style=display:none>
+                    <table cellspacing=0 style="margin:0;padding:0;border-spacing:0;border:0;">
+                        <tr style=padding:0>
+                            <td style="padding:0;color:#c8c8c8;text-align:center;cursor:pointer" width=60px valign=top onclick=goBack()>
+                                <div style="padding:0;background-color:#036;width:10px;height:10px;float:right;border:0">
+                                    <div class="menucurve"></div>
+                                </div>
+                                <div style="padding:0;font-size:25px;background-color:#036;width:50px;border-radius:0 0 10px 0;height:36px">&#9664;</div>
+                            </td>
+                            <td>
+                                <img src="/images/user-50.png" width=50 height=50 />
+                            </td>
+                            <td>
+                                <div style=margin-left:5px>
+                                    <strong style="font-size:large">My Tasks</strong><br />
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                    <div style="position:absolute;top:55px;bottom:0px;width:100%;overflow-y:auto;-webkit-overflow-scrolling:touch">
+                        <div style="padding:8px;font-size:12px;color:#888">Tasks are created on the desktop site. From here you can monitor them and take quick actions.</div>
+                        <div id=p6list style="padding:0 8px 8px 8px"></div>
                     </div>
                 </div>
                 <div id=p10 style=display:none;position:absolute;bottom:0;top:0;width:100%;overflow:hidden>
@@ -1382,6 +1409,7 @@
     </div>
     <div id=topMenu style="z-index:1000;background-color:#EEE;box-shadow:0px 0px 15px #666;font-family:Arial,Helvetica,sans-serif;border-radius:0px 0px 5px 5px;position:fixed;top:50px;right:5px;width:170px;display:none">
         <div style="padding:12px;border-top:1px solid gray;color:black;cursor:pointer" onclick=topMenu(2)>My Files</div>
+        <div id=topMenuTasksOption style="display:none;padding:12px;border-top:1px solid gray;color:black;cursor:pointer" onclick=topMenu(3)>My Tasks</div>
         <div style="padding:12px;border-top:1px solid gray;color:black;cursor:pointer" onclick=topMenu(1)>My Account</div>
         <div id="logoutMenuOption"><a id="logoutMenuOptionRef" href=/logout><div style="padding:12px;border-top:1px solid gray;color:black;cursor:pointer">Logout</div></a></div>
     </div>
@@ -1656,6 +1684,7 @@
             switch (message.action) {
                 case 'serverinfo': {
                     serverinfo = message.serverinfo;
+                    QV('topMenuTasksOption', serverinfo.agentTasks == true);
                     if (serverinfo.timeout) { setInterval(checkIdleSessionTimeout, 10000); checkIdleSessionTimeout(); }
                     if (userinfo != null) updateSelf();
                     if (serverinfo.certExpire != null) {
@@ -1946,6 +1975,7 @@
                     break;
                 }
                 case 'event': {
+                    if (message.event.action == 'agenttask') { p6Refresh(); }
                     /*
                     if (!message.event.nolog) {
                         events.unshift(message.event);
@@ -2348,6 +2378,25 @@
                     }
                     break;
                 }
+                case 'tasklist': {
+                    p6Tasks = message.tasks || [];
+                    if (xxcurrentView == 6) { p6RenderList(); }
+                    break;
+                }
+                case 'taskdelete': case 'taskpause': case 'taskrunnow': case 'taskretry': case 'taskcancel': {
+                    if (message.result && (message.result != 'OK')) { setDialogMode(2, "My Tasks", 1, null, "Error: " + EscapeHtml(message.result)); }
+                    meshserver.send({ action: 'tasklist' });
+                    if (p6DetailTaskId) { meshserver.send({ action: 'taskruns', taskid: p6DetailTaskId }); }
+                    break;
+                }
+                case 'taskruns': {
+                    if (message.taskid == p6DetailTaskId) { p6LastRuns = message.runs || []; p6RenderRuns(p6LastRuns); }
+                    break;
+                }
+                case 'taskrunoutput': {
+                    p6ShowOutputDialog(message);
+                    break;
+                }
                 default:
                     //console.log('Unknown message.action', message.action);
                     break;
@@ -2425,6 +2474,7 @@
                 xxdialogMode = 0;
                 if ((select == 1) && (xxcurrentView != 3)) { goForward('account'); } // My Account
                 if ((select == 2) && (xxcurrentView != 5)) { goForward('files'); } // My Files
+                if ((select == 3) && (xxcurrentView != 6)) { goForward('tasks'); } // My Tasks
             }
         }
 
@@ -2440,9 +2490,10 @@
             if (idtype == 'devices') { go(2); }
             if (idtype == 'files') {
                 // Remind the user to add two factor authentication
-                if ((features & 0x00040000) && !((userinfo.otpsecret == 1) || (userinfo.otphkeys > 0) || (userinfo.otpkeys > 0) || (userinfo.otpduo > 0) || (userinfo.otpdev > 0) || ((features & 0x00800000) && (userinfo.otpekey == 1)))) { setDialogMode(2, "Account Security", 1, null, "Unable to access this feature until two-factor authentication is enabled. This is required for extra security. Go to the \"My Account\" and look at the \"Account Security\" section."); return; }  
+                if ((features & 0x00040000) && !((userinfo.otpsecret == 1) || (userinfo.otphkeys > 0) || (userinfo.otpkeys > 0) || (userinfo.otpduo > 0) || (userinfo.otpdev > 0) || ((features & 0x00800000) && (userinfo.otpekey == 1)))) { setDialogMode(2, "Account Security", 1, null, "Unable to access this feature until two-factor authentication is enabled. This is required for extra security. Go to the \"My Account\" and look at the \"Account Security\" section."); return; }
                 go(5);
             }
+            if (idtype == 'tasks') { go(6); }
         }
 
         function updateFooterMenu(options) {
@@ -8541,6 +8592,7 @@
             for (var i = 0; i < 32; i++) { QV('p' + i, i == x); }
             xxcurrentView = x;
             updateCurrentUrl();
+            if (x == 6) { p6Show(); } // My Tasks: fetch its data whichever way the view was reached (menu or a ?viewmode=6 link)
         }
 
         // Change the URL
@@ -8761,6 +8813,84 @@
         function addHtmlValue4(t, v) { return '<table style=width:100%><td style=width:120px>' + t + '<td style=text-align:right><b>' + v + '</b></table>'; }
         function addLink(x, f) { return '<a style=cursor:pointer;text-decoration:none onclick=\'' + f + '\'>&diams; ' + x + '</a>'; }
         function addLinkConditional(x, f, c) { if (c) return addLink(x, f); return x; }
+
+        //
+        // "My Tasks" (view p6) -- monitor and take quick actions on tasks prepared on the desktop
+        // site. Script authoring stays desktop-only here, the same call this template already
+        // makes for the older "Run Commands" feature (see its commented-out mobile menu entry).
+        //
+        var p6Tasks = [], p6DetailTaskId = null, p6LastRuns = [], p6RefreshTimer = null;
+        var p6StateLabels = { pending: "Pending", 'waiting-user': "Waiting for a user to log in", queued: "Running...", running: "Running...", success: "Success", failed: "Failed", timeout: "Timed out", cancelled: "Cancelled", expired: "Expired" };
+        function p6Show() { meshserver.send({ action: 'tasklist' }); }
+        // Task events arrive in bursts, so they are coalesced, and ignored unless task data is on screen.
+        function p6Refresh() {
+            if (!((xxcurrentView == 6) || p6DetailTaskId) || (p6RefreshTimer != null)) return;
+            p6RefreshTimer = setTimeout(function () {
+                p6RefreshTimer = null;
+                meshserver.send({ action: 'tasklist' });
+                if (p6DetailTaskId) { meshserver.send({ action: 'taskruns', taskid: p6DetailTaskId }); }
+            }, 1500);
+        }
+        function p6FindTask(taskid) { for (var i in p6Tasks) { if (p6Tasks[i]._id == taskid) return p6Tasks[i]; } return null; }
+        function p6Time(ms) { return ms ? (new Date(ms)).toLocaleString() : ''; }
+        function p6RenderList() {
+            if (p6Tasks.length == 0) { QH('p6list', '<div style="padding:10px;color:#888">No tasks yet.</div>'); return; }
+            var x = '';
+            for (var i in p6Tasks) {
+                var t = p6Tasks[i], s = t.summary || {}, canManage = (t.scriptsHidden != true);
+                var dim = t.paused ? ' style="opacity:0.55"' : ''; // A paused task is dimmed, but not its buttons
+                x += '<div style="border:1px solid #ccc;border-radius:6px;padding:8px;margin-bottom:8px">';
+                x += '<div' + dim + '><div style="font-weight:bold">' + EscapeHtml(t.name) + (t.paused ? ' (paused)' : '') + '</div>';
+                x += '<div style="font-size:11px;color:#888">' + (t.trigger == 1 ? 'Once per device' : 'Every connection') + ' - owner ' + EscapeHtml(t.ownerName || '') + '</div>';
+                var chips = '';
+                if (s.success) { chips += '<span class=p6chip style="background:#4a7">' + s.success + ' done</span>'; }
+                if (s.failed || s.timeout) { chips += '<span class=p6chip style="background:#c44">' + ((s.failed || 0) + (s.timeout || 0)) + ' failed</span>'; }
+                if (s.waitingUser) { chips += '<span class=p6chip style="background:#c93">' + s.waitingUser + ' waiting for login</span>'; }
+                if (s.queued) { chips += '<span class=p6chip style="background:#39c">' + s.queued + ' running</span>'; }
+                if (s.pending) { chips += '<span class=p6chip style="background:#999">' + s.pending + ' waiting to connect</span>'; }
+                x += '<div style="margin:4px 0">' + (chips || '<span style="color:#888">No devices yet</span>') + '</div></div>';
+                x += '<div>';
+                x += '<input type=button value="Devices" style="margin:2px" onclick="p6ShowRuns(\'' + t._id + '\')" />';
+                if (canManage) {
+                    x += '<input type=button value="Run Now" style="margin:2px" onclick="meshserver.send({action:\'taskrunnow\',taskid:\'' + t._id + '\'})" />';
+                    x += '<input type=button value="' + (t.paused ? 'Resume' : 'Pause') + '" style="margin:2px" onclick="meshserver.send({action:\'taskpause\',taskid:\'' + t._id + '\',paused:' + (!t.paused) + '})" />';
+                    x += '<input type=button value="Delete" style="margin:2px" onclick="p6DeleteTask(\'' + t._id + '\')" />';
+                }
+                x += '</div></div>';
+            }
+            QH('p6list', x);
+        }
+        function p6DeleteTask(taskid) {
+            var t = p6FindTask(taskid);
+            setDialogMode(2, "Delete Task", 3, function () { meshserver.send({ action: 'taskdelete', taskid: taskid }); }, 'Delete task "' + EscapeHtml(t ? t.name : '') + '"? Its history is removed for every device.');
+        }
+        function p6ShowRuns(taskid) {
+            p6DetailTaskId = taskid;
+            var t = p6FindTask(taskid);
+            setDialogMode(2, EscapeHtml(t ? t.name : ''), 1 | 8, function () { p6DetailTaskId = null; }, '<div id=p6runsdetail>Loading...</div>'); // 8 = always call back, however the dialog is closed
+            meshserver.send({ action: 'taskruns', taskid: taskid });
+        }
+        function p6RenderRuns(runs) {
+            if (!Q('p6runsdetail')) return;
+            if (runs.length == 0) { QH('p6runsdetail', 'No devices yet.'); return; }
+            var x = '';
+            for (var i in runs) {
+                var r = runs[i], n = getNodeFromId(r.nodeid);
+                x += '<div style="border-top:1px solid #ddd;padding:6px 0;text-align:left">';
+                x += '<b>' + EscapeHtml(n ? n.name : r.nodeid) + '</b> - ' + EscapeHtml(p6StateLabels[r.state] || r.state);
+                if (r.exitCode != null) { x += ' (exit ' + r.exitCode + ')'; }
+                if (r.lastError && (r.state != 'success') && (r.lastError != ('exit code ' + r.exitCode))) { x += '<br /><span style="color:#c44">' + EscapeHtml(r.lastError) + '</span>'; } // Not when it only repeats the exit code shown above
+                if (r.nextAttemptTime && (r.nextAttemptTime > Date.now()) && ((r.state == 'failed') || (r.state == 'timeout'))) { x += '<br /><span style="color:#888">retrying at ' + EscapeHtml(p6Time(r.nextAttemptTime)) + '</span>'; }
+                if (r.hasOutput) { x += '<br /><input type=button value="Output" onclick="meshserver.send({action:\'taskrunoutput\',taskid:\'' + r.taskid + '\',nodeid:\'' + r.nodeid + '\'})" />'; }
+                x += '</div>';
+            }
+            QH('p6runsdetail', x);
+        }
+        function p6ShowOutputDialog(message) {
+            var n = getNodeFromId(message.nodeid);
+            p6DetailTaskId = null; // Replaced by this dialog; the device list is reopened when it closes
+            setDialogMode(2, "Output: " + EscapeHtml(n ? n.name : message.nodeid), 1 | 8, function () { p6ShowRuns(message.taskid); }, '<pre style="white-space:pre-wrap;word-break:break-word;text-align:left;max-height:50vh;overflow-y:auto;margin:0">' + EscapeHtml(message.output == null ? 'No output was kept.' : message.output) + (message.outputTruncated ? '\n\n[The output was cut to fit the size limit]' : '') + '</pre>');
+        }
         function addKeyLink(x, f) { return '<span tabindex=0 style=cursor:pointer;text-decoration:none onclick=' + f + ' onkeypress="if (event.key==\'Enter\') { ' + f + ' } ">' + x + ' <img class=hoverButton src=images/key16.png></span>'; }
         function addKeyLinkConditional(x, t, c) { if (c) return '<span title=\'' + t + '\'>' + x + ' <img class=hoverButton src=images/key16.png></span>'; return x }
         function passwordcheck(p) { var re = /(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[!@#$%^&*()]).{8,}/; return re.test(p); }

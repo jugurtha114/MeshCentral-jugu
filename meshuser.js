@@ -609,6 +609,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
             if ((typeof parent.parent.config.messaging == 'object') && (typeof parent.parent.config.messaging.ntfy == 'object') && (typeof parent.parent.config.messaging.ntfy.userurl == 'string')) { // nfty user url
                 serverinfo.userMsgNftyUrl = parent.parent.config.messaging.ntfy.userurl;
             }
+            if (parent.parent.taskManager != null) { serverinfo.agentTasks = true; } // "My Tasks": settings.taskmanager==true in config.json
 
             // Build the mobile agent URL, this is used to connect mobile devices
             var agentServerName = parent.getWebServerName(domain, req);
@@ -3245,6 +3246,47 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                     }
                     break;
                 }
+
+            // "My Tasks": prepare a Windows and/or Linux/macOS script once, aim it at devices and/or device
+            // groups, and have it run as soon as a qualifying agent connects -- once per device or on every
+            // connection -- as the system account, the logged-in user, or a named user. See taskmanager.js.
+            // Off unless settings.taskmanager is true in config.json. These always answer, echoing responseid if one was given.
+            case 'taskcreate': case 'taskedit': case 'taskdelete': case 'taskpause': case 'taskrunnow': case 'taskretry': case 'taskcancel': {
+                const taskReply = function (err, task) {
+                    try { ws.send(JSON.stringify({ action: command.action, responseid: command.responseid, taskid: command.taskid, result: (err == null) ? 'OK' : err, task: (err == null) ? task : undefined })); } catch (ex) { }
+                };
+                if (parent.parent.taskManager == null) { taskReply('The task manager is not enabled on this server'); break; }
+                if ((command.action != 'taskcreate') && (typeof command.taskid != 'string')) { taskReply('Invalid task'); break; }
+                if (command.action == 'taskcreate') { parent.parent.taskManager.createTask(user, domain, command.task, taskReply); }
+                else if (command.action == 'taskedit') { parent.parent.taskManager.editTask(user, domain, command.taskid, command.task, taskReply); }
+                else if (command.action == 'taskdelete') { parent.parent.taskManager.deleteTask(user, domain, command.taskid, taskReply); }
+                else if (command.action == 'taskpause') { parent.parent.taskManager.setPaused(user, domain, command.taskid, command.paused === true, taskReply); }
+                else if (command.action == 'taskrunnow') { parent.parent.taskManager.runNow(user, domain, command.taskid, command.nodeids, taskReply); }
+                else if (command.action == 'taskretry') { parent.parent.taskManager.retryRuns(user, domain, command.taskid, command.nodeids, taskReply); }
+                else { parent.parent.taskManager.cancelRuns(user, domain, command.taskid, command.nodeids, taskReply); }
+                break;
+            }
+            case 'tasklist': {
+                if (parent.parent.taskManager == null) { try { ws.send(JSON.stringify({ action: 'tasklist', responseid: command.responseid, tasks: [] })); } catch (ex) { } break; }
+                parent.parent.taskManager.listTasks(user, domain, function (tasks) {
+                    try { ws.send(JSON.stringify({ action: 'tasklist', responseid: command.responseid, tasks: tasks })); } catch (ex) { }
+                });
+                break;
+            }
+            case 'taskruns': {
+                if ((parent.parent.taskManager == null) || (typeof command.taskid != 'string')) break;
+                parent.parent.taskManager.getTaskRuns(user, domain, command.taskid, function (runs) {
+                    try { ws.send(JSON.stringify({ action: 'taskruns', responseid: command.responseid, taskid: command.taskid, runs: runs })); } catch (ex) { }
+                });
+                break;
+            }
+            case 'taskrunoutput': {
+                if ((parent.parent.taskManager == null) || (typeof command.taskid != 'string') || (typeof command.nodeid != 'string')) break;
+                parent.parent.taskManager.getRunOutput(user, domain, command.taskid, command.nodeid, function (out) {
+                    try { ws.send(JSON.stringify({ action: 'taskrunoutput', responseid: command.responseid, taskid: command.taskid, nodeid: command.nodeid, output: (out != null) ? out.output : null, outputTruncated: (out != null) ? out.outputTruncated : false })); } catch (ex) { }
+                });
+                break;
+            }
             case 'uninstallagent':
                 {
                     if (common.validateArray(command.nodeids, 1) == false) break; // Check nodeid's

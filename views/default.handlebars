@@ -200,6 +200,9 @@
             <div id=LeftMenuMyServer tabindex=0 class="lbbutton" style="display:none" title="My Server" onmouseup=go(6,event) onkeypress="if (event.key=='Enter') { go(6); }">
                 <div class="lbtg lb6"></div>
             </div>
+            <div id=LeftMenuMyTasks tabindex=0 class="lbbutton" style="display:none" title="My Tasks" onmouseup=go(7,event) onkeypress="if (event.key=='Enter') { go(7); }">
+                <div class="lbtg lb7"></div>
+            </div>
         </div>
         <div id=topbar class=noselect>
             <div>
@@ -234,6 +237,7 @@
                             <td tabindex=0 id=MainMenuMyFiles class="topbar_td style3x" onmouseup=go(5,event) onkeypress="if (event.key == 'Enter') go(5)">My Files</td>
                             <td tabindex=0 id=MainMenuMyUsers class="topbar_td style3x" onmouseup=go(4,event) onkeypress="if (event.key == 'Enter') go(4)">My Users</td>
                             <td tabindex=0 id=MainMenuMyServer class="topbar_td style3x" onmouseup=go(6,event) onkeypress="if (event.key == 'Enter') go(6)">My Server</td>
+                            <td tabindex=0 id=MainMenuMyTasks class="topbar_td style3x" style="display:none" onmouseup=go(7,event) onkeypress="if (event.key == 'Enter') go(7)">My Tasks</td>
                             <td class="topbar_td_end style3">&nbsp;</td>
                         </tr>
                     </table>
@@ -1606,6 +1610,17 @@
                 </table>
                 <div id=p31events style=""></div>
             </div>
+            <div id=p7 style="display:none">
+                <div id="p7title"><h1>My Tasks</h1></div>
+                <table class="pTable">
+                    <tr>
+                        <td class="h1"></td>
+                        <td class="auto-style1"><input type=button value="New Task" onclick=p7NewTaskDialog() /></td>
+                        <td class="h2"></td>
+                    </tr>
+                </table>
+                <div id=p7list></div>
+            </div>
             <div id=p40 style="display:none">
                 <div id="p40title"><h1>My Server Stats</h1></div>
                 <div class="areaHead">
@@ -2783,6 +2798,8 @@
             QV('p2ServerActions', (siteRights & 21) && ((serverFeatures & 143) != 0));
             QV('LeftMenuMyServer', (siteRights & 21) && ((serverFeatures & 64) != 0)); // 16 + 4 + 1
             QV('MainMenuMyServer', siteRights & 21);
+            QV('LeftMenuMyTasks', (serverinfo != null) && (serverinfo.agentTasks == true));
+            QV('MainMenuMyTasks', (serverinfo != null) && (serverinfo.agentTasks == true));
             QV('p2ServerActionsBackup', (siteRights & 1) && ((serverFeatures & 1) != 0));
             QV('p2ServerActionsRestore', (siteRights & 4) && ((serverFeatures & 2) != 0));
             QV('p2ServerActionsVersion', (siteRights & 16) && ((serverFeatures & 4) != 0));
@@ -3753,6 +3770,7 @@
                     break;
                 }
                 case 'event': {
+                    if (message.event.action == 'agenttask') { p7Refresh(); } // Live-update the My Tasks view/detail dialog as attempts complete
                     if (!message.event.nolog) {
                         if (currentNode && (message.event.nodeid == currentNode._id) && (currentDeviceEvents != null)) {
                             // If this event has a nodeid and we are looking at this node, update the log in real time.
@@ -4598,6 +4616,30 @@
                 }
                 case 'report': {
                     renderReport(message.data);
+                    break;
+                }
+                case 'tasklist': {
+                    p7Tasks = message.tasks || [];
+                    if (xxcurrentView == 7) { p7RenderList(); }
+                    break;
+                }
+                case 'taskcreate': case 'taskedit': {
+                    if (message.result != 'OK') { setDialogMode(2, "My Tasks", 1, null, "Error: " + EscapeHtml(message.result)); }
+                    meshserver.send({ action: 'tasklist' });
+                    break;
+                }
+                case 'taskdelete': case 'taskpause': case 'taskrunnow': case 'taskretry': case 'taskcancel': {
+                    if (message.result && (message.result != 'OK')) { setDialogMode(2, "My Tasks", 1, null, "Error: " + EscapeHtml(message.result)); }
+                    meshserver.send({ action: 'tasklist' });
+                    if (p7DetailTaskId) { meshserver.send({ action: 'taskruns', taskid: p7DetailTaskId }); }
+                    break;
+                }
+                case 'taskruns': {
+                    if (message.taskid == p7DetailTaskId) { p7LastRuns = message.runs || []; p7RenderRuns(p7LastRuns); }
+                    break;
+                }
+                case 'taskrunoutput': {
+                    p7ShowOutputDialog(message);
                     break;
                 }
                 default:
@@ -6521,6 +6563,7 @@
                 if ((rights & 64) && ((added & 8) == 0)) { added |= 8; addedOptions.push({ v: 100, name: "Wake-up devices" }); }
                 if ((rights & 262144) && ((added & 4) == 0)) { added |= 4; addedOptions.push({ v: 4, name: "Sleep devices" }); addedOptions.push({ v: 3, name: "Reset devices" }); addedOptions.push({ v: 2, name: "Power off devices" }); }
                 if ((rights & 131072) && ((added & 16) == 0)) { added |= 16; addedOptions.push({ v: 106, name: "Run commands" }); }
+                if ((rights & 131072) && (serverinfo != null) && (serverinfo.agentTasks == true) && ((added & 1024) == 0)) { added |= 1024; addedOptions.push({ v: 120, name: "Queue task" }); }
                 if ((rights & 16384) && ((added & 32) == 0)) { added |= 32; addedOptions.push({ v: 108, name: "Device notification" }); }
                 if ((rights & 4) && ((added & 64) == 0)) { added |= 64; addedOptions.push({ v: 107, name: "Edit tags" }); }
                 if ((rights & 8) && ((added & 256) == 0)) { added |= 256; addedOptions.push({ v: 109, name: "Upload files" }); }
@@ -6590,6 +6633,9 @@
             } else if (op == 106) {
                 // Run commands
                 d2runCommandDialog({ nodeids: getCheckedDevices(), title: "Run commands on selected devices.", func: uncheckAllDevices });
+            } else if (op == 120) {
+                // Queue a My Tasks task on the selected devices
+                p7QueueForSelected();
             } else if (op == 107) {
                 // Edit tags
                 var x = "Perform batch device tag operation" + '<br /><br />';
@@ -6871,6 +6917,285 @@
                 meshserver.send(cmd);
                 if (options.func) { options.func(); }
             }
+        }
+
+        //
+        // "My Tasks" -- prepare a Windows and/or Linux/macOS script once, aim it at devices and/or whole
+        // device groups, and have it run as soon as a qualifying agent connects. Only offered when the
+        // server has settings.taskmanager enabled (serverinfo.agentTasks).
+        //
+        var p7Tasks = [];
+        var p7DetailTaskId = null;
+        var p7LastRuns = [];
+        var p7RefreshTimer = null;
+        var p7StateLabels = { pending: "Pending", 'waiting-user': "Waiting for a user to log in", queued: "Running...", running: "Running...", success: "Success", failed: "Failed", timeout: "Timed out", cancelled: "Cancelled", expired: "Expired" };
+
+        function p7Show() { meshserver.send({ action: 'tasklist' }); }
+
+        // Task events arrive in bursts (a whole group connecting), so they are coalesced into one refresh,
+        // and only when something that shows task data is actually on screen.
+        function p7Refresh() {
+            if (!((xxcurrentView == 7) || p7DetailTaskId) || (p7RefreshTimer != null)) return;
+            p7RefreshTimer = setTimeout(function () {
+                p7RefreshTimer = null;
+                meshserver.send({ action: 'tasklist' });
+                if (p7DetailTaskId) { meshserver.send({ action: 'taskruns', taskid: p7DetailTaskId }); }
+            }, 1500);
+        }
+
+        function p7FindTask(taskid) { for (var i in p7Tasks) { if (p7Tasks[i]._id == taskid) return p7Tasks[i]; } return null; }
+        function p7IsShown(id) { var e = Q(id); return e && (e.style.display != 'none'); }
+        function p7Time(ms) { return ms ? (new Date(ms)).toLocaleString() : ''; }
+
+        function p7RenderList() {
+            if (p7Tasks.length == 0) { QH('p7list', '<div style="padding:20px;color:#888">No tasks yet. Click "New Task" to prepare a command or script that runs on devices as soon as they connect.</div>'); return; }
+            var x = '<table class=p7table style="width:100%;border-collapse:collapse">';
+            x += '<tr class=p7head><td>Name</td><td>Targets</td><td>Runs</td><td>Status</td><td>&nbsp;</td></tr>';
+            for (var i in p7Tasks) {
+                var t = p7Tasks[i], s = t.summary || {}, canManage = (t.scriptsHidden != true);
+                var targetCount = (t.targets.nodes ? t.targets.nodes.length : 0), meshCount = (t.targets.meshes ? t.targets.meshes.length : 0);
+                var targetsTxt = [];
+                if (meshCount > 0) { targetsTxt.push(meshCount + (meshCount == 1 ? ' device group' : ' device groups')); }
+                if (targetCount > 0) { targetsTxt.push(targetCount + (targetCount == 1 ? ' device' : ' devices')); }
+                var chips = '';
+                if (s.success) { chips += '<span class=p7chip style="background:#4a7">' + s.success + ' done</span>'; }
+                if (s.failed || s.timeout) { chips += '<span class=p7chip style="background:#c44">' + ((s.failed || 0) + (s.timeout || 0)) + ' failed</span>'; }
+                if (s.waitingUser) { chips += '<span class=p7chip style="background:#c93">' + s.waitingUser + ' waiting for login</span>'; }
+                if (s.queued) { chips += '<span class=p7chip style="background:#39c">' + s.queued + ' running</span>'; }
+                if (s.pending) { chips += '<span class=p7chip style="background:#999">' + s.pending + ' waiting to connect</span>'; }
+                var when = (t.trigger == 1) ? "Once per device" : "Every connection";
+                if (t.startTime && (t.startTime > Date.now())) { when += '<div style="font-size:11px;color:#888">from ' + EscapeHtml(p7Time(t.startTime)) + '</div>'; }
+                if (t.expireTime) { when += '<div style="font-size:11px;color:#888">until ' + EscapeHtml(p7Time(t.expireTime)) + '</div>'; }
+                var dim = t.paused ? ' style="opacity:0.55"' : ''; // A paused task is dimmed, but its buttons (Resume!) stay fully readable
+                x += '<tr class=p7row>';
+                x += '<td' + dim + '><b>' + EscapeHtml(t.name) + '</b>' + (t.paused ? ' <i>(paused)</i> ' : '') + '<div style="font-size:11px;color:#888">' + EscapeHtml(t.desc || '') + '</div><div style="font-size:11px;color:#888">Owner: ' + EscapeHtml(t.ownerName || '') + '</div></td>';
+                x += '<td' + dim + '>' + targetsTxt.join(', ') + '</td>';
+                x += '<td' + dim + '>' + when + '</td>';
+                x += '<td' + dim + '>' + (chips || '<span style="color:#888">No devices yet</span>') + '</td>';
+                x += '<td>'; // The buttons may wrap onto a second line on a narrow window instead of squeezing the name
+                x += '<input type=button value="Devices" title="Per-device status and output" onclick="p7ShowRuns(\'' + t._id + '\')" />';
+                if (canManage) {
+                    x += '<input type=button value="Run Now" title="Run again on every device that is online now" onclick="p7RunNow(\'' + t._id + '\')" />';
+                    x += '<input type=button value="' + (t.paused ? 'Resume' : 'Pause') + '" onclick="p7TogglePause(\'' + t._id + '\', ' + (!t.paused) + ')" />';
+                    x += '<input type=button value="Edit" onclick="p7EditTaskDialog(\'' + t._id + '\')" />';
+                    x += '<input type=button value="Duplicate" onclick="p7DuplicateTask(\'' + t._id + '\')" />';
+                    x += '<input type=button value="Delete" onclick="p7DeleteTask(\'' + t._id + '\')" />';
+                }
+                x += '</td></tr>';
+            }
+            x += '</table>';
+            QH('p7list', x);
+        }
+
+        // Builds the create/edit dialog body. task == null means "create"; a preset lets the device page /
+        // multi-select action open it pre-aimed (locked targets) or pre-filled from a copy (template).
+        function p7BuildDialogHtml(task, preset) {
+            var t = task || (preset && preset.template) || { name: '', desc: '', targets: (preset && preset.targets) || { nodes: [], meshes: [] }, winType: 1, winScript: '', nixType: 1, nixScript: '', runAs: 0, runAsUser: '', waitForUser: true, trigger: 1, minIntervalSec: 3600, connectDelaySec: 0, timeoutSec: 300, maxRetries: 3, retryBackoffSec: 60, successCodes: [0], maxOutputBytes: 65536, startTime: null, expireTime: null };
+            if (preset && preset.targets && preset.lockTargets) { t.targets = preset.targets; }
+            var lockedTargets = (preset && preset.lockTargets === true);
+            var x = '<div style="text-align:left;max-height:65vh;overflow-y:auto;padding-right:6px">';
+            x += addHtmlValue("Name", '<input id=p7fname style="width:250px" maxlength=256 value="' + EscapeHtml(t.name) + '" onkeyup=p7ValidateDialog() />');
+            x += addHtmlValue("Description", '<input id=p7fdesc style="width:250px" maxlength=2048 value="' + EscapeHtml(t.desc || '') + '" />');
+            x += '<div style="font-weight:bold;margin-top:10px">Targets</div>';
+            if (lockedTargets) {
+                x += '<div style="font-size:12px;color:#888">' + EscapeHtml(preset.label) + '</div>';
+            } else {
+                x += addHtmlValue("Device groups", '<select id=p7ftargetmesh multiple style="width:250px;height:70px" onchange=p7ValidateDialog()>' + p7MeshOptions(t.targets.meshes) + '</select>');
+                x += addHtmlValue("Individual devices", '<select id=p7ftargetnode multiple style="width:250px;height:70px" onchange=p7ValidateDialog()>' + p7NodeOptions(t.targets.nodes) + '</select>');
+                x += '<div style="font-size:11px;color:#888">Hold Ctrl (or Cmd) to pick several. A device group includes devices that join it later.</div>';
+            }
+            x += '<div style="font-weight:bold;margin-top:10px">What to run</div>';
+            x += addHtmlValue("Windows", '<select id=p7fwintype style="width:150px"><option value=0' + (t.winType == 0 ? ' selected' : '') + '>Nothing</option><option value=1' + (t.winType == 1 ? ' selected' : '') + '>Command Prompt</option><option value=2' + (t.winType == 2 ? ' selected' : '') + '>PowerShell</option></select>');
+            x += '<textarea id=p7fwinscript style="background-color:#fcf3cf;width:100%;height:80px;resize:vertical;box-sizing:border-box" placeholder="Windows script..." onkeyup=p7ValidateDialog()>' + EscapeHtml(t.winScript || '') + '</textarea>';
+            x += addHtmlValue("Linux / macOS", '<select id=p7fnixtype style="width:150px"><option value=0' + (t.nixType == 0 ? ' selected' : '') + '>Nothing</option><option value=1' + (t.nixType == 1 ? ' selected' : '') + '>sh</option><option value=2' + (t.nixType == 2 ? ' selected' : '') + '>bash</option><option value=3' + (t.nixType == 3 ? ' selected' : '') + '>python3</option></select>');
+            x += '<textarea id=p7fnixscript style="background-color:#fcf3cf;width:100%;height:80px;resize:vertical;box-sizing:border-box" placeholder="Linux/macOS script..." onkeyup=p7ValidateDialog()>' + EscapeHtml(t.nixScript || '') + '</textarea>';
+            x += '<div style="font-size:11px;color:#888">A device runs the script for its own platform. Leave the other one empty if it does not apply.</div>';
+            x += '<div style="font-weight:bold;margin-top:10px">Run as</div>';
+            x += addHtmlValue("Identity", '<select id=p7frunas onchange=p7ValidateDialog() style="width:250px"><option value=0' + (t.runAs == 0 ? ' selected' : '') + '>System / root account</option><option value=1' + (t.runAs == 1 ? ' selected' : '') + '>Logged-in user (system if nobody is)</option><option value=2' + (t.runAs == 2 ? ' selected' : '') + '>Logged-in user only</option><option value=3' + (t.runAs == 3 ? ' selected' : '') + '>A specific user</option></select>');
+            x += '<div id=p7fspecificuserdiv>' + addHtmlValue("Username", '<input id=p7fspecificuser style="width:250px" placeholder="DOMAIN\\username on Windows" value="' + EscapeHtml(t.runAsUser || '') + '" onkeyup=p7ValidateDialog() />') + '<div style="font-size:11px;color:#888">On Windows that user has to be logged in when the task runs.</div></div>';
+            x += '<div id=p7fwaitdiv>' + addHtmlValue("If nobody is logged in", '<select id=p7fwait style="width:250px"><option value=1' + (t.waitForUser !== false ? ' selected' : '') + '>Wait for a user to log in</option><option value=0' + (t.waitForUser === false ? ' selected' : '') + '>Count it as a failed attempt (retries)</option></select>') + '</div>';
+            x += '<div style="font-weight:bold;margin-top:10px">When</div>';
+            x += addHtmlValue("Run", '<select id=p7ftrigger onchange=p7ValidateDialog() style="width:250px"><option value=1' + (t.trigger == 1 ? ' selected' : '') + '>Once per device</option><option value=2' + (t.trigger == 2 ? ' selected' : '') + '>Every time the device connects</option></select>');
+            x += '<div id=p7fminintervaldiv>' + addHtmlValue("Not more often than (minutes)", '<input id=p7fmininterval type=number min=0 style="width:100px" value="' + Math.round((t.minIntervalSec || 0) / 60) + '" />') + '</div>';
+            x += addHtmlValue("Delay after connecting (seconds)", '<input id=p7fdelay type=number min=0 max=86400 style="width:100px" value="' + (t.connectDelaySec || 0) + '" />');
+            x += '<div style="margin-top:6px"><input type=checkbox id=p7fusestart' + (t.startTime ? ' checked' : '') + ' /> <label for=p7fusestart>Don\'t start before</label> <input id=p7fstart type=datetime-local style="width:200px" value="' + p7ToLocalInput(t.startTime) + '" /></div>';
+            x += '<div style="margin-top:6px"><input type=checkbox id=p7fuseexpire' + (t.expireTime ? ' checked' : '') + ' /> <label for=p7fuseexpire>Stop offering it after</label> <input id=p7fexpire type=datetime-local style="width:200px" value="' + p7ToLocalInput(t.expireTime) + '" /></div>';
+            x += '<div style="font-weight:bold;margin-top:10px">Reliability <a href=# onclick="QV(\'p7fadvanced\',!p7IsShown(\'p7fadvanced\'));return false;" style="font-weight:normal;font-size:12px">(show/hide)</a></div>';
+            x += '<div id=p7fadvanced style="display:none">';
+            x += addHtmlValue("Timeout (seconds)", '<input id=p7ftimeout type=number min=5 max=86400 style="width:100px" value="' + (t.timeoutSec || 300) + '" />');
+            x += addHtmlValue("Retries on failure", '<input id=p7fretries type=number min=0 max=50 style="width:100px" value="' + (t.maxRetries != null ? t.maxRetries : 3) + '" />');
+            x += addHtmlValue("First retry after (seconds)", '<input id=p7fbackoff type=number min=15 max=86400 style="width:100px" value="' + (t.retryBackoffSec || 60) + '" />');
+            x += addHtmlValue("Success exit codes", '<input id=p7fsuccesscodes style="width:150px" value="' + ((t.successCodes || [0]).join(',')) + '" />');
+            x += addHtmlValue("Keep output up to (KB)", '<input id=p7fmaxoutput type=number min=1 max=256 style="width:100px" value="' + Math.round((t.maxOutputBytes || 65536) / 1024) + '" />');
+            x += '<div style="font-size:11px;color:#888">Each retry waits twice as long as the one before. Success exit codes are comma-separated (default 0). If the device restarts while the script is running, that attempt counts as failed and is retried as set here.</div>';
+            x += '</div>';
+            x += '</div>';
+            x += '<div id=p7fmsg style="color:#c44;font-size:12px;min-height:16px;margin-top:6px;text-align:left"></div>';
+            return x;
+        }
+
+        function p7MeshOptions(selected) {
+            var x = '';
+            for (var i in meshes) { x += '<option value="' + EscapeHtml(i) + '"' + ((selected && selected.indexOf(i) >= 0) ? ' selected' : '') + '>' + EscapeHtml(meshes[i].name) + '</option>'; }
+            return x;
+        }
+        function p7NodeOptions(selected) {
+            var x = '';
+            if (nodes != null) { for (var i in nodes) { var n = nodes[i]; x += '<option value="' + EscapeHtml(n._id) + '"' + ((selected && selected.indexOf(n._id) >= 0) ? ' selected' : '') + '>' + EscapeHtml(n.name) + '</option>'; } }
+            return x;
+        }
+        function p7ToLocalInput(ms) {
+            if (!ms) return '';
+            var d = new Date(ms - (new Date()).getTimezoneOffset() * 60000);
+            return d.toISOString().slice(0, 16);
+        }
+        function p7FromLocalInput(id) {
+            var v = Q(id).value;
+            if (!v) return null;
+            var ms = (new Date(v)).getTime();
+            return isNaN(ms) ? null : ms;
+        }
+
+        function p7SelectedValues(id) {
+            var el = Q(id), out = [];
+            if (el == null) return out;
+            for (var i = 0; i < el.options.length; i++) { if (el.options[i].selected) { out.push(el.options[i].value); } }
+            return out;
+        }
+
+        // The OK button is only available once the task could actually be saved, and the reason is always shown when it is not.
+        function p7ValidateDialog() {
+            var runas = Q('p7frunas').value;
+            QV('p7fspecificuserdiv', runas == 3);
+            QV('p7fwaitdiv', (runas == 2) || (runas == 3));
+            QV('p7fminintervaldiv', Q('p7ftrigger').value == 2);
+            var problem = null;
+            if (Q('p7fname').value.trim().length == 0) { problem = "Give the task a name."; }
+            else if (Q('p7ftargetmesh') && (p7SelectedValues('p7ftargetmesh').length + p7SelectedValues('p7ftargetnode').length == 0)) { problem = "Choose at least one device group or device."; }
+            else if ((Q('p7fwinscript').value.trim().length == 0) && (Q('p7fnixscript').value.trim().length == 0)) { problem = "Enter a script for Windows and/or Linux/macOS."; }
+            else if ((runas == 3) && (Q('p7fspecificuser').value.trim().length == 0)) { problem = "Enter the user name to run as."; }
+            QH('p7fmsg', problem ? EscapeHtml(problem) : '');
+            QE('idx_dlgOkButton', problem == null);
+        }
+
+        // Note: setDialogMode()'s 6th argument is what reaches the OK callback as its 2nd parameter.
+        function p7NewTaskDialog(preset) {
+            var x = p7BuildDialogHtml(null, preset);
+            setDialogMode(2, "New Task", 3, p7SaveDialog, x, { preset: preset });
+            QS('dialog').width = 'min(640px, calc(100% - 20px))';
+            p7ValidateDialog();
+        }
+        function p7EditTaskDialog(taskid) {
+            var t = p7FindTask(taskid);
+            if (t == null) return;
+            var x = p7BuildDialogHtml(t, null);
+            setDialogMode(2, "Edit Task \"" + EscapeHtml(t.name) + "\"", 3, p7SaveDialog, x, { taskid: taskid });
+            QS('dialog').width = 'min(640px, calc(100% - 20px))';
+            p7ValidateDialog();
+        }
+        function p7DuplicateTask(taskid) {
+            var t = p7FindTask(taskid);
+            if (t == null) return;
+            var copy = JSON.parse(JSON.stringify(t));
+            copy.name = t.name + ' (copy)';
+            p7NewTaskDialog({ template: copy });
+        }
+
+        function p7SaveDialog(b, tag) {
+            var successCodes = [];
+            (Q('p7fsuccesscodes').value || '0').split(',').forEach(function (s) { var n = parseInt(s.trim()); if (!isNaN(n)) { successCodes.push(n); } });
+            if (successCodes.length == 0) { successCodes = [0]; }
+            var fields = {
+                name: Q('p7fname').value.trim(), desc: Q('p7fdesc').value,
+                winType: (Q('p7fwinscript').value.trim().length == 0) ? 0 : (parseInt(Q('p7fwintype').value) || 1), winScript: Q('p7fwinscript').value,
+                nixType: (Q('p7fnixscript').value.trim().length == 0) ? 0 : (parseInt(Q('p7fnixtype').value) || 1), nixScript: Q('p7fnixscript').value,
+                runAs: parseInt(Q('p7frunas').value), runAsUser: Q('p7fspecificuser').value.trim(),
+                waitForUser: (Q('p7fwait').value == '1'),
+                trigger: parseInt(Q('p7ftrigger').value), minIntervalSec: Math.max(0, parseInt(Q('p7fmininterval').value || '0')) * 60,
+                connectDelaySec: Math.max(0, parseInt(Q('p7fdelay').value || '0')),
+                startTime: Q('p7fusestart').checked ? p7FromLocalInput('p7fstart') : null,
+                expireTime: Q('p7fuseexpire').checked ? p7FromLocalInput('p7fexpire') : null,
+                timeoutSec: parseInt(Q('p7ftimeout').value || '300'), maxRetries: parseInt(Q('p7fretries').value || '3'),
+                retryBackoffSec: parseInt(Q('p7fbackoff').value || '60'), successCodes: successCodes,
+                maxOutputBytes: Math.max(1, parseInt(Q('p7fmaxoutput').value || '64')) * 1024
+            };
+            if (Q('p7ftargetmesh')) { fields.targets = { meshes: p7SelectedValues('p7ftargetmesh'), nodes: p7SelectedValues('p7ftargetnode') }; }
+            else if (tag && tag.preset && tag.preset.targets) { fields.targets = tag.preset.targets; } // Targets were fixed by whoever opened the dialog
+            if (tag && tag.taskid) { meshserver.send({ action: 'taskedit', taskid: tag.taskid, task: fields }); }
+            else { meshserver.send({ action: 'taskcreate', task: fields }); }
+        }
+
+        function p7DeleteTask(taskid) {
+            var t = p7FindTask(taskid);
+            setDialogMode(2, "Delete Task", 3, function () { meshserver.send({ action: 'taskdelete', taskid: taskid }); }, 'Delete task "' + EscapeHtml(t ? t.name : '') + '"? Its history is removed for every device. Scripts that already ran are not undone.');
+        }
+        function p7TogglePause(taskid, paused) { meshserver.send({ action: 'taskpause', taskid: taskid, paused: paused }); }
+        function p7RunNow(taskid, nodeids) { meshserver.send({ action: 'taskrunnow', taskid: taskid, nodeids: nodeids }); }
+
+        function p7ShowRuns(taskid) {
+            p7DetailTaskId = taskid;
+            var t = p7FindTask(taskid);
+            var canManage = (t != null) && (t.scriptsHidden != true);
+            var bar = canManage ? ('<div style="margin-bottom:6px;text-align:left"><input type=button value="Retry failed" onclick="meshserver.send({action:\'taskretry\',taskid:\'' + taskid + '\'})" /> <input type=button value="Run on all" onclick="p7RunNow(\'' + taskid + '\')" /> <input type=button value="Cancel pending" onclick="meshserver.send({action:\'taskcancel\',taskid:\'' + taskid + '\'})" /></div>') : '';
+            setDialogMode(2, "Devices: " + EscapeHtml(t ? t.name : ''), 1 | 8, p7CloseDetail, bar + '<div id=p7runsdetail style="max-height:55vh;overflow-y:auto">Loading...</div>'); // 8 = always call p7CloseDetail, however the dialog is closed
+            QS('dialog').width = 'min(900px, calc(100% - 20px))';
+            meshserver.send({ action: 'taskruns', taskid: taskid });
+        }
+        function p7CloseDetail() { p7DetailTaskId = null; }
+
+        function p7RenderRuns(runs) {
+            if (!Q('p7runsdetail')) return;
+            if (runs.length == 0) { QH('p7runsdetail', 'No devices yet.'); return; }
+            var t = p7FindTask(p7DetailTaskId), canManage = (t != null) && (t.scriptsHidden != true);
+            var x = '<table class=p7table style="width:100%;border-collapse:collapse;text-align:left"><tr class=p7head><td>Device</td><td>State</td><td>Tries</td><td>Result</td><td>&nbsp;</td></tr>';
+            for (var i in runs) {
+                var r = runs[i], n = getNodeFromId(r.nodeid);
+                var failedNow = (r.state == 'failed') || (r.state == 'timeout');
+                var res = '';
+                if (r.exitCode != null) { res += 'exit code ' + r.exitCode; }
+                // The reason, unless it only repeats the exit code shown just before it
+                if (r.lastError && (r.state != 'success') && (r.lastError != ('exit code ' + r.exitCode))) { res += (res ? '<br />' : '') + '<span style="color:#c44">' + EscapeHtml(r.lastError) + '</span>'; }
+                if (failedNow && r.nextAttemptTime && (r.nextAttemptTime > Date.now())) { res += '<br /><span style="color:#888">retrying at ' + EscapeHtml(p7Time(r.nextAttemptTime)) + '</span>'; }
+                var meta = [];
+                if (r.lastAttemptTime) { meta.push(p7Time(r.lastAttemptTime)); }
+                if (r.runAsResolved) { meta.push('as ' + r.runAsResolved); }
+                if (r.durationMs != null) { meta.push((Math.round(r.durationMs / 100) / 10) + 's'); }
+                if (meta.length) { res += '<div style="font-size:11px;color:#888">' + EscapeHtml(meta.join(' \u00b7 ')) + '</div>'; }
+                x += '<tr class=p7row><td>' + EscapeHtml(n ? n.name : r.nodeid) + '</td>';
+                x += '<td>' + EscapeHtml(p7StateLabels[r.state] || r.state) + '</td>';
+                x += '<td>' + (r.attempts || 0) + '</td>';
+                x += '<td>' + res + '</td>';
+                x += '<td style="white-space:nowrap">';
+                if (canManage) {
+                    x += '<input type=button value="Run" onclick="p7RunNow(\'' + r.taskid + '\',[\'' + r.nodeid + '\'])" />';
+                    if (['pending', 'waiting-user', 'queued', 'running', 'failed', 'timeout'].indexOf(r.state) >= 0) { x += '<input type=button value="Cancel" onclick="meshserver.send({action:\'taskcancel\',taskid:\'' + r.taskid + '\',nodeids:[\'' + r.nodeid + '\']})" />'; }
+                }
+                if (r.hasOutput) { x += '<input type=button value="Output" onclick="p7ShowOutput(\'' + r.taskid + '\',\'' + r.nodeid + '\')" />'; }
+                x += '</td></tr>';
+            }
+            x += '</table>';
+            QH('p7runsdetail', x);
+        }
+
+        // Output is stored apart from the run list and only fetched when asked for.
+        function p7ShowOutput(taskid, nodeid) { meshserver.send({ action: 'taskrunoutput', taskid: taskid, nodeid: nodeid }); }
+        function p7ShowOutputDialog(message) {
+            var n = getNodeFromId(message.nodeid);
+            var text = (message.output == null) ? 'No output was kept.' : message.output;
+            p7DetailTaskId = null; // The device list dialog is replaced by this one; it is reopened when this closes
+            setDialogMode(2, "Output: " + EscapeHtml(n ? n.name : message.nodeid), 1 | 8, function () { p7ShowRuns(message.taskid); }, '<pre style="white-space:pre-wrap;word-break:break-word;text-align:left;max-height:55vh;overflow-y:auto;margin:0">' + EscapeHtml(text) + (message.outputTruncated ? '\n\n[The output was cut to fit the size limit]' : '') + '</pre>');
+            QS('dialog').width = 'min(760px, calc(100% - 20px))';
+        }
+
+        // Shortcuts from the device page and the multi-select action bar
+        function p7QueueForDevice(nodeid) {
+            var n = getNodeFromId(nodeid);
+            p7NewTaskDialog({ targets: { nodes: [nodeid], meshes: [] }, lockTargets: true, label: 'This task targets only "' + (n ? n.name : nodeid) + '". It runs when that device is next online.' });
+        }
+        function p7QueueForSelected() {
+            var ids = getCheckedDevices();
+            if (ids.length == 0) return;
+            p7NewTaskDialog({ targets: { nodes: ids, meshes: [] }, lockTargets: true, label: 'This task targets the ' + ids.length + ' selected device(s).' });
         }
 
         function onSortSelectChange(skipsave) {
@@ -10574,6 +10899,7 @@
             } else {
                 if ((rights & 64) != 0) { count++; y += '<option value=100>' + "Wake-up" + '</option>'; } // Wake-up permission
                 if (((currentNode.conn & 1) != 0) && ((rights & 131072) != 0)) { count++; y += '<option value=106>' + "Run Commands" + '</option>'; } // Remote command permission
+                if ((rights & 131072) && (serverinfo != null) && (serverinfo.agentTasks == true)) { count++; y += '<option value=120>' + "Queue Task" + '</option>'; }
                 if ((currentNode.conn != 0) && ((rights & 262144) != 0)) { count++; y += '<option value=4>' + "Sleep" + '</option><option value=3>' + "Reset" + '</option><option value=2>' + "Power off" + '</option>'; }
                 if ((currentNode.conn & 16) != 0) { count++; y += '<option value=103>' + "Send MQTT Message" + '</option>'; }
                 if ((currentNode.intelamt != null) && (currentNode.intelamt.state == 2) && ((currentNode.conn & 6) != 0) && ((rights & 262144) != 0)) {
@@ -10635,6 +10961,9 @@
                     Q('d2runcmd').focus();
                     //QE('idx_dlgOkButton', true);
                 }
+            } else if (op == 120) {
+                // Queue a My Tasks task on this device (works even while it's offline)
+                p7QueueForDevice(currentNode._id);
             } else if (op == 107) {
                 // Intel AMT One Click Recovery (OCR)
                 Q('d3localmodeform').action = 'oneclickrecovery.ashx';
@@ -22131,6 +22460,7 @@
 
             if (x == 22) { p22Show(); }
             if (x == 23) { p23Show(); }
+            if (x == 7) { p7Show(); }
 
             // If a connection was started from the Mic panel (video paused,
             // since nobody was looking -- see p22Toggle()), opening the
@@ -22166,14 +22496,14 @@
             }
 
             // Remove top bar selection
-            var mainBarItems = ['MainMenuMyDevices', 'MainMenuMyAccount', 'MainMenuMyEvents', 'MainMenuMyFiles', 'MainMenuMyUsers', 'MainMenuMyServer'];
+            var mainBarItems = ['MainMenuMyDevices', 'MainMenuMyAccount', 'MainMenuMyEvents', 'MainMenuMyFiles', 'MainMenuMyUsers', 'MainMenuMyServer', 'MainMenuMyTasks'];
             for (var i in mainBarItems) {
                 QC(mainBarItems[i]).remove('fullselect');
                 QC(mainBarItems[i]).remove('semiselect');
             }
 
             // Remove left bar selection
-            var leftBarItems = ['LeftMenuMyDevices', 'LeftMenuMyAccount', 'LeftMenuMyEvents', 'LeftMenuMyFiles', 'LeftMenuMyUsers', 'LeftMenuMyServer'];
+            var leftBarItems = ['LeftMenuMyDevices', 'LeftMenuMyAccount', 'LeftMenuMyEvents', 'LeftMenuMyFiles', 'LeftMenuMyUsers', 'LeftMenuMyServer', 'LeftMenuMyTasks'];
             for (var i in leftBarItems) {
                 QC(leftBarItems[i]).remove('lbbuttonsel');
                 QC(leftBarItems[i]).remove('lbbuttonsel2');
@@ -22210,6 +22540,10 @@
                 // My Server
                 QC('MainMenuMyServer').add(mainMenuActiveClass);
                 QC('LeftMenuMyServer').add(leftMenuActiveClass);
+            } else if (x == 7) {
+                // My Tasks
+                QC('MainMenuMyTasks').add(mainMenuActiveClass);
+                QC('LeftMenuMyTasks').add(leftMenuActiveClass);
             }
             QV('ServerPlugins', pluginHandler != null);
 

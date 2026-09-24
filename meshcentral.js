@@ -1796,6 +1796,7 @@ function CreateMeshCentralServer(config, args) {
             // Setup the task manager
             if ((obj.config) && (obj.config.settings) && (obj.config.settings.taskmanager == true)) {
                 obj.taskManager = require('./taskmanager').createTaskManager(obj);
+                obj.taskManager.reconcileOnStartup(); // Re-arm timers and catch up any run left pending/waiting by a restart
             }
 
             // Start plugin manager if configuration allows this.

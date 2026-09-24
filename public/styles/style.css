@@ -2298,6 +2298,22 @@ a {
     background-image: image-set(url(../images/leftbar-64.png) 1x, url(../images/leftbar-128.png) 2x);
 }
 
+/* "My Tasks" left/top bar icon -- drawn inline rather than added to the leftbar-64.png/128.png
+   sprite sheets, which are flat raster images not practical to hand-edit here. A simple flat
+   clipboard-with-checkmark glyph, sized to match the sprite icons above (62x62 inside .lbtg). */
+.lb7 {
+    background: no-repeat center / 46px 46px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='14' y='9' width='36' height='49' rx='4' fill='%23eef2f6' stroke='%237a8ba0' stroke-width='2'/%3E%3Crect x='24' y='4' width='16' height='9' rx='2' fill='%237a8ba0'/%3E%3Cline x1='21' y1='24' x2='37' y2='24' stroke='%23a9b7c4' stroke-width='3' stroke-linecap='round'/%3E%3Cline x1='21' y1='33' x2='37' y2='33' stroke='%23a9b7c4' stroke-width='3' stroke-linecap='round'/%3E%3Cline x1='21' y1='42' x2='31' y2='42' stroke='%23a9b7c4' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='45' cy='45' r='13' fill='%234a9c6d'/%3E%3Cpath d='M39 45l4 4 8-8' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* My Tasks list (view p7) */
+.p7table td { padding: 6px 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
+.p7table td:first-child { min-width: 170px; }
+.night .p7table td { border-bottom: 1px solid #444; }
+.p7head td { font-weight: bold; background-color: #d3d9d6; }
+.night .p7head td { background-color: #333; }
+.p7row input[type=button] { margin: 1px 2px 1px 0; font-size: 11px; padding: 2px 6px; }
+.p6chip, .p7chip { display: inline-block; color: #fff; border-radius: 3px; padding: 1px 6px; margin: 1px 3px 1px 0; font-size: 11px; white-space: nowrap; }
+
 .m0 {
     background: url(../images/images16.png) -32px 0px;
     height: 16px;
