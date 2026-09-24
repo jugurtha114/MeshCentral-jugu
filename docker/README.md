@@ -48,6 +48,7 @@ Below is a breakdown of environment variables used in this setup.
 | CONFIG_FILE | /opt/meshcentral/meshcentral-data/config.json | Path to the configuration file. |
 | DYNAMIC_CONFIG | false | Enables/disables dynamic configuration. This means config is being rechecked every container restart. False if you want to use your own `config.json` |
 | ALLOW_PLUGINS | false | Enables/disables plugins. |
+| TASK_MANAGER | false | Enables/disables "My Tasks": scripts prepared once that run on devices as soon as they connect. |
 | ALLOW_NEW_ACCOUNTS | false | Enables/disables new account creation. |
 | ALLOWED_ORIGIN | false | Enables/disables allowed origin policy. |
 | ARGS | "" | Additional arguments for MeshCentral. |

@@ -1020,6 +1020,10 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
             return;
         }
 
+        // "My Tasks": this is the "as soon as it's connected" hook -- the agent's core is now
+        // confirmed loaded, so any task targeting this device or its device group can be dispatched.
+        if (parent.parent.taskManager != null) { try { parent.parent.taskManager.onAgentConnected(obj); } catch (ex) { } }
+
         // Fetch the the diagnostic agent nodeid
         db.Get('ra' + obj.dbNodeKey, function (err, nodes) {
             if ((nodes != null) && (nodes.length == 1)) {
@@ -1261,6 +1265,18 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
                                 obj.send(JSON.stringify(cmd));
                             }, null, 1);
                         }
+                        break;
+                    }
+                case 'taskresult':
+                    {
+                        // "My Tasks": the agent finished (or gave up on) one attempt of a scheduled/queued task.
+                        if (parent.parent.taskManager != null) { try { parent.parent.taskManager.onTaskResult(obj, command); } catch (ex) { } }
+                        break;
+                    }
+                case 'taskinflight':
+                    {
+                        // "My Tasks": the agent's answer to a taskquery, sent after a reconnect. Lists what it is still running or has not had acknowledged.
+                        if (parent.parent.taskManager != null) { try { parent.parent.taskManager.onTaskInflight(obj, command); } catch (ex) { } }
                         break;
                     }
                 case 'smbios':
@@ -1959,7 +1975,7 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
                     parent.removePmtFromAllOtherNodes(device); // We need to make sure to remove this push messaging token from any other device on this server, all domains included.
                 }
                 
-                if ((command.users != null) && (Array.isArray(command.users)) && (device.users != command.users)) { device.users = command.users; change = 1; } // Don't save this to the db.
+                if ((command.users != null) && (Array.isArray(command.users)) && (device.users != command.users)) { device.users = command.users; change = 1; if (parent.parent.taskManager != null) { try { parent.parent.taskManager.onAgentUsersChanged(obj, command.users); } catch (ex) { } } } // Don't save this to the db.
                 if ((command.lusers != null) && (Array.isArray(command.lusers)) && (device.lusers != command.lusers)) { device.lusers = command.lusers; change = 1; } // Don't save this to the db.
                 if ((command.upnusers != null) && (Array.isArray(command.upnusers)) && (device.upnusers != command.upnusers)) { device.upnusers = command.upnusers; change = 1; } // Don't save this to the db.
                 if ((mesh.mtype == 2) && (!args.wanonly)) {

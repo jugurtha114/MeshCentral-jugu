@@ -1168,6 +1168,11 @@
             }
           }
         },
+        "taskmanager": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable \"My Tasks\": scripts prepared once that run on devices as soon as they connect. Off by default."
+        },
         "plugins": {
           "type": "object",
           "properties": {

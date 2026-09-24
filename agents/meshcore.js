@@ -1982,6 +1982,22 @@ function handleServerCommand(data) {
                 }
                 break;
             }
+            case 'runtask':
+                // Scheduled/queued task attempt (My Tasks feature). Distinct from the legacy
+                // single-slot "runcommands" console feature above: supports several tasks
+                // in flight at once, real per-script exit codes, a timeout, and a genuine
+                // run-as-logged-in-user path on every platform. See task-runner.js.
+                try { require('task-runner').run(data); } catch (ex) { }
+                break;
+            case 'canceltask':
+                try { require('task-runner').cancel(data); } catch (ex) { }
+                break;
+            case 'taskquery': // The server, after a (re)connect: what attempts are you still running / have not been acknowledged?
+                try { require('task-runner').query(); } catch (ex) { }
+                break;
+            case 'taskack': // The server has stored a result, it no longer needs to be kept for re-sending
+                try { require('task-runner').ack(data); } catch (ex) { }
+                break;
             case 'uninstallagent':
                 // Uninstall this agent
                 var agentName = process.platform == 'win32' ? 'Mesh Agent' : 'meshagent';
