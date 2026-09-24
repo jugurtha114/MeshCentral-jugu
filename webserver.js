@@ -201,6 +201,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
     obj.webCertificateFullHash = parent.certificateOperations.getCertHashBinary(obj.certificates.web.cert);
     obj.webCertificateFullHashs = { '': obj.webCertificateFullHash };
     obj.webCertificatePins = { '': getCertSpkiPin(obj.certificates.web.cert) };
+    obj.webCertificateSha256Hex = { '': getCertSha256Hex(obj.certificates.web.cert) };
     obj.webCertificateExpire = { '': parent.certificateOperations.getCertificateExpire(parent.certificates.web.cert) };
     obj.agentCertificateHashHex = parent.certificateOperations.getPublicKeyHash(obj.certificates.agent.cert);
     obj.agentCertificateHashBase64 = Buffer.from(obj.agentCertificateHashHex, 'hex').toString('base64').replace(/\+/g, '@').replace(/\//g, '$');
@@ -215,12 +216,14 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             obj.webCertificateHashs[i] = obj.webCertificateFullHashs[i] = Buffer.from(obj.parent.config.domains[i].certhash, 'hex').toString('binary');
             if (obj.parent.config.domains[i].certkeyhash != null) { obj.webCertificateHashs[i] = Buffer.from(obj.parent.config.domains[i].certkeyhash, 'hex').toString('binary'); }
             obj.webCertificatePins[i] = null; // Only the hash is known, not the certificate
+            obj.webCertificateSha256Hex[i] = null;
             delete obj.webCertificateExpire[i]; // Expire time is not provided
         } else if ((obj.parent.config.domains[i].dns != null) && (obj.parent.config.domains[i].certs != null)) {
             // If the domain has a different DNS name, use a different certificate hash.
             // Hash the full certificate
             obj.webCertificateFullHashs[i] = parent.certificateOperations.getCertHashBinary(obj.parent.config.domains[i].certs.cert);
             obj.webCertificatePins[i] = getCertSpkiPin(obj.parent.config.domains[i].certs.cert);
+            obj.webCertificateSha256Hex[i] = getCertSha256Hex(obj.parent.config.domains[i].certs.cert);
             obj.webCertificateExpire[i] = Date.parse(parent.certificateOperations.forge.pki.certificateFromPem(obj.parent.config.domains[i].certs.cert).validity.notAfter);
             try {
                 // Decode a RSA certificate and hash the public key.
@@ -234,24 +237,32 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             obj.webCertificateFullHashs[i] = parent.certificateOperations.getCertHashBinary(obj.certificates.dns[i].cert);
             obj.webCertificateHashs[i] = parent.certificateOperations.getPublicKeyHashBinary(obj.certificates.dns[i].cert);
             obj.webCertificatePins[i] = getCertSpkiPin(obj.certificates.dns[i].cert);
+            obj.webCertificateSha256Hex[i] = getCertSha256Hex(obj.certificates.dns[i].cert);
             obj.webCertificateExpire[i] = Date.parse(parent.certificateOperations.forge.pki.certificateFromPem(obj.certificates.dns[i].cert).validity.notAfter);
         } else if (i != '') {
             // For any other domain, use the default cert.
             obj.webCertificateFullHashs[i] = obj.webCertificateFullHashs[''];
             obj.webCertificateHashs[i] = obj.webCertificateHashs[''];
             obj.webCertificatePins[i] = obj.webCertificatePins[''];
+            obj.webCertificateSha256Hex[i] = obj.webCertificateSha256Hex[''];
             obj.webCertificateExpire[i] = obj.webCertificateExpire[''];
         }
     }
 
     // Behind a TLS offloading proxy, browsers and tools see the proxy's certificate, not ours: there is no pin to offer.
-    if (obj.args.tlsoffload) { for (var i in obj.webCertificatePins) { obj.webCertificatePins[i] = null; } }
+    if (obj.args.tlsoffload) { for (var i in obj.webCertificatePins) { obj.webCertificatePins[i] = null; obj.webCertificateSha256Hex[i] = null; } }
 
     // Public key pin of a PEM certificate in curl's --pinnedpubkey format, "sha256//" + base64(SHA-256(SPKI)). The web UI puts
     // it in the commands that download and log in the meshtunnel tool, so they work against a self-signed certificate
     // without turning certificate checks off.
     function getCertSpkiPin(pem) {
         try { return 'sha256//' + obj.crypto.createHash('sha256').update(new obj.crypto.X509Certificate(pem).publicKey.export({ type: 'spki', format: 'der' })).digest('base64'); } catch (ex) { return null; }
+    }
+
+    // SHA-256 of the whole certificate (uppercase hex). The Windows PowerShell setup line pins the certificate with it, because
+    // .NET Framework has no simple way to hash the public key the way curl does.
+    function getCertSha256Hex(pem) {
+        try { return obj.crypto.createHash('sha256').update(new obj.crypto.X509Certificate(pem).raw).digest('hex').toUpperCase(); } catch (ex) { return null; }
     }
 
     // If we are running the legacy swarm server, compute the hash for that certificate
@@ -3347,6 +3358,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                     customFiles: customFiles,
                     webcerthash: Buffer.from(obj.webCertificateFullHashs[domain.id], 'binary').toString('base64').replace(/\+/g, '@').replace(/\//g, '$'),
                     webcertpin: obj.webCertificatePins[domain.id] || '',
+                    webcertsha256: obj.webCertificateSha256Hex[domain.id] || '',
                     footer: (domain.footer == null) ? '' : obj.common.replacePlaceholders(domain.footer, {
                         'serverversion': obj.parent.currentVer,
                         'servername': obj.getWebServerName(domain, req),
@@ -4002,17 +4014,176 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         res.send(Buffer.from(getRootCertBase64(), 'base64'));
     }
 
-    // Serve the meshtunnel command line tool, so any computer can fetch it from this server (the Terminal tab gives the command).
-    // It holds nothing server specific, it is sent exactly as it is on disk.
-    var meshTunnelScript = null;
+    //
+    // meshtunnel: reach devices from your own terminal (ssh through the relay, the agent's shell, port forwarding). The
+    // Terminal tab's Local Terminal dialog gives a one-line setup command; everything it needs is served from here:
+    // the clients (Node.js, Python, PowerShell), the installers, and the endpoints that trade a setup code for a login
+    // token or let a token revoke itself.
+    //
+
+    obj.meshTunnelEnrollments = require('./meshtunnelenroll.js').createEnrollmentStore();
+
+    // Same rule as createLoginToken in meshuser.js: may this user have login tokens on this domain?
+    obj.loginTokensAllowed = function (domain, user) {
+        const pr = domain.passwordrequirements;
+        if ((pr == null) || (typeof pr != 'object')) return true;
+        if (pr.logintokens === false) return false;
+        if (Array.isArray(pr.logintokens) && (pr.logintokens.indexOf(user._id) < 0) && (user.links && Object.keys(user.links).some(function (key) { return pr.logintokens.indexOf(key) < 0; }))) return false;
+        return true;
+    };
+
+    // Create a login token stored exactly like createLoginToken (meshuser.js) stores one.
+    obj.createLoginTokenForUser = function (user, domain, name, expireMinutes, func) {
+        const random = function (n) { var v; do { v = obj.crypto.randomBytes(n).toString('base64'); } while ((v.indexOf('+') >= 0) || (v.indexOf('/') >= 0)); return v; };
+        const tokenUser = '~t:' + random(12), tokenPass = random(15);
+        require('./pass').hash(tokenPass, function (err, salt, hash, tag) {
+            if (err) { func(err); return; }
+            const created = Date.now(), expire = (expireMinutes > 0) ? (created + (expireMinutes * 60000)) : 0;
+            obj.db.Set({ _id: 'logintoken-' + tokenUser, type: 'logintoken', nodeid: 'logintoken-' + user._id, userid: user._id, name: name, tokenUser: tokenUser, salt: salt, hash: hash, domain: domain.id, created: created, expire: expire }, function () {
+                func(null, { tokenUser: tokenUser, tokenPass: tokenPass, created: created, expire: expire });
+            });
+        });
+    };
+
+    // The installers carry the clients inside them (as quoted here-documents in install.sh, base64 in install.ps1), so setting
+    // up a computer is one download.
+    const meshTunnelFiles = {
+        'meshtunnel.js': { file: 'meshtunnel.js', type: 'application/javascript' },
+        'meshtunnel.py': { file: 'meshtunnel/meshtunnel.py', type: 'text/x-python' },
+        'meshtunnel.ps1': { file: 'meshtunnel/meshtunnel.ps1', type: 'text/plain' },
+        'meshtunnel-install.sh': { file: 'meshtunnel/install.sh', type: 'text/plain; charset=utf-8', template: 'sh', sources: { PY: 'meshtunnel/meshtunnel.py', JS: 'meshtunnel.js' } },
+        'meshtunnel-install.ps1': { file: 'meshtunnel/install.ps1', type: 'text/plain; charset=utf-8', template: 'ps', sources: { PS1: 'meshtunnel/meshtunnel.ps1', JS: 'meshtunnel.js' } }
+    };
+    const meshTunnelFileCache = {};
+    function meshTunnelFile(file) {
+        if (meshTunnelFileCache[file] == null) { try { meshTunnelFileCache[file] = obj.fs.readFileSync(obj.path.join(__dirname, file)); } catch (ex) { return null; } }
+        return meshTunnelFileCache[file];
+    }
+
+    // Checks shared by every meshtunnel endpoint: domain, IP filters and the 3FA URL key. Returns null once it has answered.
+    function meshTunnelDomain(req, res) {
+        const domain = checkUserIpAddress(req, res);
+        if (domain == null) return null;
+        if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return null; } // Check 3FA URL key
+        return domain;
+    }
+
+    // This server's address as the computer running the setup command reached it (its Host header), else as configured.
+    function meshTunnelServerUrl(req, domain) {
+        var host = req.headers.host;
+        if ((typeof host != 'string') || (/^([A-Za-z0-9.-]{1,253}|\[[0-9A-Fa-f:.]{2,45}\])(:[0-9]{1,5})?$/.test(host) == false)) {
+            host = obj.getWebServerName(domain, req);
+            const port = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport);
+            if (port != 443) { host += ':' + port; }
+        }
+        return 'https://' + host + domain.url;
+    }
+
+    // Serves the clients as they are on disk, and the installers filled in with this server's address, its public key
+    // pin when its certificate is not publicly trusted, the 3FA URL key if one is used, and the clients. None of that is
+    // secret: the setup code only ever travels on the command line and in the redeem request, never in a URL.
     function handleMeshTunnelRequest(req, res) {
-        const domain = getDomain(req);
-        if (domain == null) { parent.debug('web', 'handleMeshTunnelRequest: no domain'); res.sendStatus(404); return; }
-        if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
-        if ((obj.userAllowedIp != null) && (checkIpAddressEx(req, res, obj.userAllowedIp, false) === false)) { parent.debug('web', 'handleMeshTunnelRequest: invalid ip'); return; } // Check server-wide IP filter only.
-        if (meshTunnelScript == null) { try { meshTunnelScript = obj.fs.readFileSync(obj.path.join(__dirname, 'meshtunnel.js')); } catch (ex) { res.sendStatus(404); return; } }
-        setContentDispositionHeader(res, 'application/javascript', 'meshtunnel.js', meshTunnelScript.length, 'meshtunnel.js');
-        res.send(meshTunnelScript);
+        const domain = meshTunnelDomain(req, res);
+        if (domain == null) return;
+        const name = req.path.split('/').pop(), f = meshTunnelFiles[name];
+        const data = (f != null) ? meshTunnelFile(f.file) : null;
+        if (data == null) { res.sendStatus(404); return; }
+        if (f.template == null) { setContentDispositionHeader(res, f.type, name, data.length, name); res.send(data); return; }
+        const untrusted = (obj.isTrustedCert(domain) == false);
+        const values = {
+            SERVER: meshTunnelServerUrl(req, domain),
+            PIN: untrusted ? (obj.webCertificatePins[domain.id] || '') : '',
+            CERTSHA256: untrusted ? (obj.webCertificateSha256Hex[domain.id] || '') : '',
+            LOGINKEY: (domain.loginkey != null) ? encodeURIComponent(String(req.query.key)) : ''
+        };
+        let text = data.toString('utf8');
+        for (const k in values) {
+            const v = (f.template == 'ps') ? values[k].split("'").join("''") : values[k].split("'").join("'\\''"); // Placeholders sit inside single quotes
+            text = text.split('__MESHTUNNEL_' + k + '__').join(v);
+        }
+        for (const k in f.sources) {
+            const src = meshTunnelFile(f.sources[k]);
+            if (src == null) { res.sendStatus(404); return; }
+            let body;
+            if (f.template == 'ps') {
+                body = src.toString('base64'); // Plain ASCII in a quoted string: no code page or quoting surprises in Windows PowerShell
+            } else {
+                body = src.toString('utf8').replace(/\r\n/g, '\n').replace(/\n$/, '');
+                // A line that would end the here-document early cannot be embedded: refuse rather than serve a broken script.
+                if (body.split('\n').indexOf('MESHTUNNEL_' + k + '_EOF') >= 0) { console.log('meshtunnel: ' + f.sources[k] + ' cannot be embedded in ' + f.file); res.sendStatus(500); return; }
+            }
+            text = text.split('__MESHTUNNEL_SOURCE_' + k + '__').join(body);
+        }
+        res.set({ 'Cache-Control': 'no-store', 'Content-Type': f.type });
+        res.send(text);
+    }
+
+    function meshTunnelJson(res, status, body) { res.status(status).set({ 'Cache-Control': 'no-store', 'Content-Type': 'application/json' }).send(JSON.stringify(body)); }
+
+    function meshTunnelUserTargets(user) { const targets = ['*', 'server-users', user._id]; if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } } return targets; }
+
+    // Same event as meshuser.js loginTokens sends after removing tokens, so the web UI's token list stays right.
+    function meshTunnelTokensChanged(user, domain, removed) {
+        obj.db.GetAllTypeNodeFiltered(['logintoken-' + user._id], domain.id, 'logintoken', null, function (err, docs) {
+            if (err != null) return;
+            const now = Date.now(), tokens = [];
+            for (var i = 0; i < docs.length; i++) { const d = docs[i]; if ((d.tokenUser != null) && ((d.expire == 0) || (d.expire >= now))) { tokens.push({ name: d.name, tokenUser: d.tokenUser, created: d.created, expire: d.expire }); } }
+            parent.DispatchEvent(meshTunnelUserTargets(user), obj, { etype: 'user', userid: user._id, username: user.name, action: 'loginTokenChanged', domain: domain.id, loginTokens: tokens, removed: removed, nolog: 1 });
+        });
+    }
+
+    // POST code, name[, replaceuser, replacepass]: trade a setup code made in the web UI for a login token. Single use. When
+    // the computer was set up before, it may prove it holds its previous token so that one is retired rather than forgotten.
+    function handleMeshTunnelRedeem(req, res) {
+        const domain = meshTunnelDomain(req, res);
+        if (domain == null) return;
+        if (obj.checkAllowLogin(req) == false) { meshTunnelJson(res, 429, { error: 'Too many failed attempts from this address, try again later.' }); return; }
+        const body = req.body || {};
+        const e = obj.meshTunnelEnrollments.redeem(body.code);
+        if ((e == null) || (e.domainid != domain.id)) {
+            obj.setbadLogin(req);
+            parent.authLog('https', 'Failed meshtunnel setup code from ' + req.clientIp + ' port ' + req.connection.remotePort);
+            meshTunnelJson(res, 403, { error: 'This setup code is not valid: it was already used, has expired, or was mistyped. Create a new one in the web UI (Terminal tab, Local Terminal).' });
+            return;
+        }
+        const user = obj.users[e.userid];
+        var err = null;
+        if (user == null) { err = 'The account that created this setup code no longer exists.'; }
+        else if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 32) != 0)) { err = 'This account is locked.'; }
+        else if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & SITERIGHT_NOMESHCMD) != 0)) { err = 'This account is not allowed to use tools like meshtunnel.'; }
+        else if (obj.loginTokensAllowed(domain, user) == false) { err = 'Login tokens are not allowed for this account on this server.'; }
+        if (err != null) { meshTunnelJson(res, 403, { error: err }); return; }
+        var name = String((body.name != null) ? body.name : '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 100);
+        if (name == '') { name = 'meshtunnel'; }
+        obj.createLoginTokenForUser(user, domain, name, e.expireDays * 1440, function (terr, t) {
+            if (terr != null) { meshTunnelJson(res, 500, { error: 'The server could not create a login token.' }); return; }
+            parent.DispatchEvent(meshTunnelUserTargets(user), obj, { etype: 'user', userid: user._id, username: user.name, action: 'loginTokenAdded', msgid: 115, msg: "Added login token", domain: domain.id, newToken: { name: name, tokenUser: t.tokenUser, created: t.created, expire: t.expire }, meshTunnelEnroll: e.enrollId });
+            parent.authLog('https', 'Accepted meshtunnel setup code for ' + user.name + ' from ' + req.clientIp + ' port ' + req.connection.remotePort + ', login token "' + name + '" created');
+            const done = function () { meshTunnelJson(res, 200, { user: t.tokenUser, pass: t.tokenPass, account: user.name, name: name, expire: t.expire }); };
+            if ((typeof body.replaceuser == 'string') && body.replaceuser.startsWith('~t:') && (typeof body.replacepass == 'string')) {
+                obj.authenticate(body.replaceuser, body.replacepass, domain, function (aerr, userid) {
+                    if ((aerr == null) && (userid === user._id)) { obj.db.Remove('logintoken-' + body.replaceuser, function () { meshTunnelTokensChanged(user, domain, [body.replaceuser]); done(); }); } else { done(); }
+                });
+            } else { done(); }
+        });
+    }
+
+    // POST user, pass: a login token deletes itself (meshtunnel logout / uninstall). Nothing else can be removed this way.
+    function handleMeshTunnelRevoke(req, res) {
+        const domain = meshTunnelDomain(req, res);
+        if (domain == null) return;
+        if (obj.checkAllowLogin(req) == false) { meshTunnelJson(res, 429, { error: 'Too many failed attempts from this address, try again later.' }); return; }
+        const body = req.body || {};
+        if ((typeof body.user != 'string') || (body.user.startsWith('~t:') == false) || (typeof body.pass != 'string')) { meshTunnelJson(res, 400, { error: 'Only a login token can be revoked this way.' }); return; }
+        obj.authenticate(body.user, body.pass, domain, function (err, userid) {
+            const user = (err == null) ? obj.users[userid] : null;
+            if (user == null) { obj.setbadLogin(req); meshTunnelJson(res, 403, { error: 'This login token is not valid, it may already be revoked or expired.' }); return; }
+            obj.db.Remove('logintoken-' + body.user, function () {
+                meshTunnelTokensChanged(user, domain, [body.user]);
+                parent.authLog('https', 'meshtunnel login token revoked by its holder for ' + user.name + ' from ' + req.clientIp + ' port ' + req.connection.remotePort);
+                meshTunnelJson(res, 200, { result: 'ok' });
+            });
+        });
     }
 
     // Return a customised mainifest.json for PWA
@@ -7445,6 +7616,12 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                 obj.app.post(url + 'amtevents.ashx', obj.bodyParser.urlencoded({ extended: false }), obj.handleAmtEventRequest);
                 obj.app.get(url + 'meshagents', obj.handleMeshAgentRequest);
                 obj.app.get(url + 'meshtunnel.js', handleMeshTunnelRequest);
+                obj.app.get(url + 'meshtunnel.py', handleMeshTunnelRequest);
+                obj.app.get(url + 'meshtunnel.ps1', handleMeshTunnelRequest);
+                obj.app.get(url + 'meshtunnel-install.sh', handleMeshTunnelRequest);
+                obj.app.get(url + 'meshtunnel-install.ps1', handleMeshTunnelRequest);
+                obj.app.post(url + 'meshtunnel-redeem', obj.bodyParser.urlencoded({ extended: false }), handleMeshTunnelRedeem);
+                obj.app.post(url + 'meshtunnel-revoke', obj.bodyParser.urlencoded({ extended: false }), handleMeshTunnelRevoke);
                 obj.app.get(url + 'messenger', handleMessengerRequest);
                 obj.app.get(url + 'messenger.png', handleMessengerImageRequest);
                 obj.app.get(url + 'meshosxagent', obj.handleMeshOsxAgentRequest);

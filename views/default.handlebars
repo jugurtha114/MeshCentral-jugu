@@ -899,7 +899,7 @@
                                     <div id="terminalCustomUiButtons" style="float:left"></div>
                                 </div>
                                 <div>
-                                    <input type="button" id="autoconnectbutton2" value="AutoConnect" onclick=autoConnectTerminal(event) onkeypress="return false" onkeydown="return false" style="display:none" /><span id="connectbutton2span" style="margin-right:4px"><input type="button" id="connectbutton2" cmenu="termConnectButton" value="Connect" onclick=connectTerminal(event,1) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="connectbutton2sspan" style="margin-right:4px"><input type="button" id="connectbutton2s" cmenu=sshPortContextMenu value="SSH Connect" onclick=connectTerminal(event,3) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="connectbutton2hspan" style="margin-right:4px"><input type="button" id="connectbutton2h" value="HW Connect" title="Connect using Intel&reg; AMT hardware KVM" onclick=connectTerminal(event,2) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="disconnectbutton2span" style="margin-right:4px"><input type="button" id="disconnectbutton2" value="Disconnect" onclick=connectTerminal(event,0) onkeypress="return false" onkeydown="return false" /></span><span id="localterm2span" style="margin-right:4px;display:none"><input type="button" id="localterm2" value="Local Terminal" title="Use your own terminal, ssh, scp and rsync with this device" onclick=showLocalTerminalDialog() onkeypress="return false" onkeydown="return false" /></span>
+                                    <input type="button" id="autoconnectbutton2" value="AutoConnect" onclick=autoConnectTerminal(event) onkeypress="return false" onkeydown="return false" style="display:none" /><span id="connectbutton2span" style="margin-right:4px"><input type="button" id="connectbutton2" cmenu="termConnectButton" value="Connect" onclick=connectTerminal(event,1) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="connectbutton2sspan" style="margin-right:4px"><input type="button" id="connectbutton2s" cmenu=sshPortContextMenu value="SSH Connect" onclick=connectTerminal(event,3) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="connectbutton2hspan" style="margin-right:4px"><input type="button" id="connectbutton2h" value="HW Connect" title="Connect using Intel&reg; AMT hardware KVM" onclick=connectTerminal(event,2) onkeypress="return false" onkeydown="return false" disabled="disabled" /></span><span id="disconnectbutton2span" style="margin-right:4px"><input type="button" id="disconnectbutton2" value="Disconnect" onclick=connectTerminal(event,0) onkeypress="return false" onkeydown="return false" /></span><span id="localterm2span" style="margin-right:4px;display:none"><input type="button" id="localterm2" value="Local Terminal" title="Use your own terminal, ssh, scp, rsync and sftp with this device" onclick=showLocalTerminalDialog() onkeypress="return false" onkeydown="return false" /></span>
                                     <span id="termstatus" style="line-height:22px">Disconnected</span><span id="termtitle"></span>
                                 </div>
                             </td>
@@ -2053,6 +2053,7 @@
         var multiDesktop = {};
         var serverPublicNamePort = '{{{serverDnsName}}}:{{{serverPublicPort}}}';
         var webCertPin = '{{{webcertpin}}}'; // Public key pin of this server's certificate for the meshtunnel setup commands, empty if unknown
+        var webCertSha256 = '{{{webcertsha256}}}'; // SHA-256 of that certificate, for the Windows setup command, empty if unknown
         var amtScanResults = null;
         var debugmode = 0;
         var windowsBrowser = detectWindowsBrowser();
@@ -4405,6 +4406,7 @@
                             if (loginTokens == null) { loginTokens = []; }
                             loginTokens.push(message.event.newToken);
                             mainUpdate(65536);
+                            localTermTokenAdded(message.event); // A computer finished its Local Terminal setup
                             break;
                         }
                         case 'stopped': { // Server is stopping.
@@ -4597,6 +4599,10 @@
                 }
                 case 'getDeviceDetails': {
                     saveAs(new Blob([message.data], { type: 'application/octet-stream' }), "devicelist" + '.' + message.type);
+                    break;
+                }
+                case 'meshTunnelEnroll': { // A Local Terminal setup code was created
+                    localTermEnrolled(message);
                     break;
                 }
                 case 'createLoginToken': { // A new login token was created
@@ -13159,15 +13165,19 @@
         }
 
         //
-        // Local Terminal: reach this device from your own terminal emulator, and with ssh, scp and rsync, through the
-        // meshtunnel command line tool (served by this server at /meshtunnel.js).
+        // Local Terminal: reach this device from your own terminal, with ssh, scp, rsync, sftp or the agent's own shell,
+        // through the meshtunnel command line tool (Python, Node.js or PowerShell). Setting up a computer is one pasted
+        // command: it carries a single-use setup code that the computer trades for its own revocable login token.
         //
 
-        // The "<handle>.mesh" name of a device. Same rule as slugify() and assignHandles() in meshtunnel.js, keep them in sync.
+        var localTerm = null; // The open Local Terminal dialog: { os, enroll: { code, enrollId, expire }, pending, done, timer, more }
+
+        // The "<handle>.mesh" name of a device. Same rule as slugify()/assignHandles() in meshtunnel.js, meshtunnel.py and
+        // meshtunnel.ps1: keep them in sync.
         function meshTunnelSlug(name) {
             var s = String(name || '');
             if (s.normalize) { s = s.normalize('NFKD'); }
-            s = s.replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '');
+            s = s.replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '');
             return (s == '') ? 'device' : s;
         }
         function meshTunnelHandle(node) {
@@ -13179,65 +13189,317 @@
             return slug + '-' + hex;
         }
 
-        // The server address, built the same way as the agent install commands (copyAgentUrl)
+        // The server address as this browser reaches it: the setup command runs on this same computer, and the installer
+        // gets the same address from the request. Built from the server settings when the page itself is not on https.
         function localTermServerUrl() {
+            if (window.location.protocol == 'https:') { return 'https://' + window.location.host.toLowerCase() + domainUrl; }
             var servername = serverinfo.name;
             if ((servername.indexOf('.') == -1) || ((features & 2) != 0)) { servername = window.location.hostname; }
             return 'https://' + servername + ((serverinfo.port == 443) ? '' : (':' + serverinfo.port)) + domainUrl;
         }
+        function localTermKey() { return urlargs.key ? ('?key=' + encodeURIComponent(urlargs.key)) : ''; }
+        function localTermUntrusted() { return ((features & 0x80000000) != 0); } // This server's certificate is not publicly trusted
+
+        function localTermDetectOs() {
+            var p = String((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '').toLowerCase();
+            if (p.indexOf('win') >= 0) return 'windows';
+            if ((p.indexOf('mac') >= 0) || (p.indexOf('iphone') >= 0) || (p.indexOf('ipad') >= 0)) return 'mac';
+            return 'linux';
+        }
+        function localTermRuntimes(os) {
+            if (os == 'windows') { return [['powershell', "PowerShell (built into Windows)"], ['node', "Node.js 16 or newer"]]; }
+            return [['auto', "Automatic: Python 3, else Node.js"], ['python', "Python 3.6 or newer"], ['node', "Node.js 16 or newer"]];
+        }
+        function localTermOpen2() { return (localTerm != null) && (xxdialogMode == 2) && (xxdialogTag == 'localterm'); }
 
         function showLocalTerminalDialog() {
             if (xxdialogMode || (terminalNode == null)) return;
-            var windows = isWindowsNode(terminalNode);
-            var x = '<div style=margin-bottom:6px>' + "Open this device in your own terminal emulator:" + '</div><div style=margin-bottom:14px><select id=d2localTermShell style=margin-right:6px>';
-            if (windows) { x += '<option value=1>' + "Admin Shell" + '</option><option value=6>' + "Admin PowerShell" + '</option><option value=8>' + "User Shell" + '</option><option value=9>' + "User PowerShell" + '</option>'; }
-            else { x += '<option value=1>' + "Root Shell" + '</option><option value=8>' + "User Shell" + '</option><option value=L>' + "Login Shell" + '</option>'; }
-            x += '</select><input type=button value="' + "Open in my terminal" + '" onclick=localTermOpen() /></div>';
-            x += '<div style=margin-bottom:4px>' + "Commands for this device, as SSH user" + ' <input id=d2localTermUser type=text maxlength=64 style=width:110px oninput=localTermUpdate() value="' + EscapeHtml(getstore(windows ? 'localTermUserW' : 'localTermUser', windows ? 'Administrator' : 'root')) + '" /></div>';
-            x += '<div id=d2localTermCmds style=margin-bottom:4px></div>';
-            x += '<div style=font-size:11px;color:#555;margin-bottom:14px>' + "ssh, scp and rsync go to the device's own SSH server through the tunnel, which can listen on 127.0.0.1 only. The agent shell needs no SSH server." + '</div>';
-            x += '<div style=margin-bottom:4px>' + "One-time setup on your computer (Node.js 16 or newer). The last command asks for your password:" + '</div>';
-            x += '<textarea id=d2localTermSetup readonly=readonly rows=4 style="border-radius:4px;padding:6px;margin-bottom:4px;background-color:#FFF9D3;border:0;width:100%;box-sizing:border-box;resize:none;height:128px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:12px"></textarea>';
-            x += '<a style=text-decoration:none;cursor:pointer title="' + "Copy to clipboard" + '" onclick=copyAgentIdValue("d2localTermSetup")><img src=images/link4.png height=10 width=10> ' + "Copy" + '</a> &nbsp; ';
-            x += '<a href="' + EscapeHtml(domainUrl + 'meshtunnel.js' + (urlargs.key ? ('?key=' + encodeURIComponent(urlargs.key)) : '')) + '" download=meshtunnel.js>' + "Download meshtunnel.js" + '</a> <span style=font-size:11px;color:#555>' + "(on Windows, run it with node meshtunnel.js)" + '</span>';
-            setDialogMode(2, "Local Terminal", 2, null, x);
-            QS('dialog').width = 'min(640px, calc(100% - 20px))';
-            QS('dialog').left = 'max(10px, calc((100% - 640px) / 2))';
-            QS('dialog').top = '80px';
-            localTermUpdate();
+            var os = getstore('localTermOs', '');
+            if (['linux', 'mac', 'windows'].indexOf(os) < 0) { os = localTermDetectOs(); }
+            if (localTerm && localTerm.timer) { clearInterval(localTerm.timer); }
+            localTerm = { os: os, enroll: null, pending: false, done: null, timer: null, more: false, req: 'localterm' + Math.random().toString(36).slice(2) };
+            var x = '<div id=d2lt style="max-height:calc(100vh - 190px);overflow-y:auto;overflow-x:hidden;padding:0 4px 0 2px;text-align:left">';
+            x += '<div id=d2ltMain><div id=d2ltSetup></div><div id=d2ltConnect></div></div><div id=d2ltMore style=display:none></div></div>';
+            setDialogMode(2, "Local Terminal", 2, null, x, 'localterm');
+            QS('dialog').width = 'min(680px, calc(100% - 20px))';
+            QS('dialog').left = 'max(10px, calc((100% - 680px) / 2))';
+            QS('dialog').top = '60px';
+            localTermRenderSetup();
+            localTermRenderConnect();
+            localTerm.timer = setInterval(localTermTick, 1000);
         }
 
-        function localTermUpdate() {
-            if (Q('d2localTermUser') == null) return;
-            var windows = isWindowsNode(terminalNode), h = meshTunnelHandle(terminalNode), user = Q('d2localTermUser').value.trim();
-            putstore(windows ? 'localTermUserW' : 'localTermUser', user);
-            var target = ((user != '') ? (user + '@') : '') + h + '.mesh', cmds = [];
-            cmds.push(["Agent shell", 'meshtunnel shell ' + h + (windows ? ' --powershell' : '')]);
-            cmds.push(["SSH", 'ssh ' + target]);
-            cmds.push(["Copy a file", 'scp ./file ' + target + ':' + (windows ? '' : '/tmp/')]);
-            if (windows == false) { cmds.push(["Sync a folder", 'rsync -avP ./dir/ ' + target + ':/tmp/dir/']); }
-            if (windows) { cmds.push(["Remote desktop", 'meshtunnel forward 13389 ' + h + ' 3389']); } else { cmds.push(["Forward a port", 'meshtunnel forward 8080 ' + h + ' 80']); }
-            var x = '<table style=width:100% cellpadding=0 cellspacing=0>';
-            for (var i = 0; i < cmds.length; i++) {
-                x += '<tr><td style="width:110px;font-size:12px;padding:1px 6px 1px 0">' + cmds[i][0] + '</td><td style=padding:1px><input id=d2ltc' + i + ' type=text readonly=readonly style="width:100%;box-sizing:border-box;border:0;border-radius:3px;padding:3px;background-color:#FFF9D3;font-family:monospace;font-size:12px" value="' + EscapeHtml(cmds[i][1]) + '" /></td>';
-                x += '<td style=width:18px;text-align:right><img src=images/link4.png height=10 width=10 style=cursor:pointer title="' + "Copy to clipboard" + '" onclick=copyAgentIdValue("d2ltc' + i + '")></td></tr>';
+        function localTermCard(title, body) {
+            return '<div style="background:#FFF;border:1px solid #CCC;border-radius:6px;padding:10px 12px;margin-bottom:10px"><div style="font-weight:bold;margin-bottom:8px">' + title + '</div>' + body + '</div>';
+        }
+        function localTermCodeBox(id, text, rows) {
+            return '<textarea id=' + id + ' readonly=readonly rows=' + rows + ' onclick=this.select() spellcheck=false style="display:block;width:100%;box-sizing:border-box;resize:none;border:0;border-radius:4px;padding:6px 8px;background-color:#FFF9D3;color:#000;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;overflow:auto">' + EscapeHtml(text) + '</textarea>';
+        }
+        function localTermCopyLink(id) {
+            return '<a style=cursor:pointer;text-decoration:none title="' + "Copy to clipboard" + '" onclick=localTermCopy("' + id + '")><img src=images/link4.png height=10 width=10> <span id=' + id + 'Copied>' + "Copy" + '</span></a>';
+        }
+        function localTermCopy(id) {
+            var e = Q(id);
+            if (e == null) return;
+            copyTextToClip((e.value != null) ? e.value : e.textContent);
+            var c = Q(id + 'Copied');
+            if (c) { c.textContent = "Copied"; setTimeout(function () { if (Q(id + 'Copied')) { Q(id + 'Copied').textContent = "Copy"; } }, 1500); }
+            else { e.style.backgroundColor = '#C8EFC8'; setTimeout(function () { e.style.backgroundColor = '#FFF9D3'; }, 700); } // Brief flash: copied
+        }
+
+        // 1. Set up this computer: operating system, client, how long it stays signed in, then the one-line command.
+        function localTermRenderSetup() {
+            if (!localTermOpen2()) return;
+            var lt = localTerm, os = lt.os, setupAt = parseInt(getstore('localTermSetupAt', '0')) || 0;
+            if ((lt.enroll == null) && (lt.done == null) && (setupAt > 0) && (lt.showSetup !== true)) {
+                QH('d2ltSetup', localTermCard("1. Set up this computer", '<div>&#x2714; ' + "This browser already set up a computer for Local Terminal." + ' <a style=cursor:pointer onclick="localTerm.showSetup=true;localTermRenderSetup()">' + "Set up this or another computer" + '</a></div>'));
+                return;
             }
-            QH('d2localTermCmds', x + '</table>');
-
-            // Pin the server's public key when its certificate is not publicly trusted, so no step turns certificate checks off.
-            // meshtunnel runs by full path here, ~/.local/bin may not be on the PATH until the next login.
-            var url = localTermServerUrl(), key = (urlargs.key ? ('?key=' + encodeURIComponent(urlargs.key)) : ''), bin = '~/.local/bin/meshtunnel';
-            var pin = (((features & 0x80000000) != 0) && (webCertPin != '')) ? webCertPin : null;
-            var setup = 'mkdir -p ~/.local/bin && curl -fsS' + (pin ? (' -k --pinnedpubkey \'' + pin + '\'') : '') + ' -o ' + bin + ' \'' + url + 'meshtunnel.js' + key + '\' && chmod 755 ' + bin + '\n';
-            setup += bin + ' ssh-config --install\n' + bin + ' install-handler\n';
-            setup += bin + ' login \'' + url + key + '\'' + (pin ? (' --pin \'' + pin + '\'') : '');
-            Q('d2localTermSetup').value = setup;
+            var names = { linux: "Linux", mac: "macOS", windows: "Windows" };
+            var y = '<div style="display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;margin-bottom:8px">';
+            y += '<div>' + "This computer runs" + ' ';
+            for (var o in names) { y += '<label style="margin-right:8px;white-space:nowrap"><input type=radio name=d2ltOs value=' + o + ((o == os) ? ' checked' : '') + ' onchange="localTermSetOs(this.value)">' + names[o] + '</label>'; }
+            y += '</div></div>';
+            var rt = getstore('localTermRuntime' + os, ''), runtimes = localTermRuntimes(os), found = false;
+            for (var i = 0; i < runtimes.length; i++) { if (runtimes[i][0] == rt) { found = true; } }
+            if (!found) { rt = runtimes[0][0]; }
+            y += '<div style="display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;margin-bottom:10px"><label>' + "Client" + ' <select id=d2ltRuntime onchange="putstore(\'localTermRuntime\' + localTerm.os, this.value);localTermRenderCommand()">';
+            for (var i = 0; i < runtimes.length; i++) { y += '<option value=' + runtimes[i][0] + ((runtimes[i][0] == rt) ? ' selected' : '') + '>' + runtimes[i][1] + '</option>'; }
+            y += '</select></label><label>' + "Stay signed in" + ' <select id=d2ltExpire onchange="putstore(\'localTermExpire\', this.value)">';
+            var expire = getstore('localTermExpire', '0'), choices = [['0', "until I revoke it"], ['90', "for 90 days"], ['30', "for 30 days"], ['7', "for 7 days"]];
+            for (var i = 0; i < choices.length; i++) { y += '<option value=' + choices[i][0] + ((choices[i][0] == expire) ? ' selected' : '') + '>' + choices[i][1] + '</option>'; }
+            y += '</select></label></div>';
+            if (lt.enroll == null) {
+                y += '<div style="display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center"><input type=button id=d2ltCreate value="' + "Create setup command" + '" onclick=localTermCreate()' + (lt.pending ? ' disabled' : '') + ' />';
+                y += '<span style=font-size:11px;color:#555>' + "One command to paste, no password needed. It works once, within 15 minutes." + '</span></div>';
+            }
+            y += '<div id=d2ltCmdArea></div><div id=d2ltStatus style="margin-top:6px;font-size:12px"></div>';
+            y += localTermManualHtml();
+            QH('d2ltSetup', localTermCard("1. Set up this computer", y));
+            localTermRenderCommand();
         }
 
-        // Opens the user's terminal through the meshtunnel:// handler that "meshtunnel install-handler" registers.
+        function localTermSetOs(os) {
+            if (localTerm == null) return;
+            localTerm.os = os;
+            putstore('localTermOs', os);
+            localTermRenderSetup();
+            localTermRenderConnect();
+            if (localTerm.more) { localTermShowMore(true); }
+        }
+
+        function localTermCreate() {
+            if (!localTermOpen2() || localTerm.pending) return;
+            localTerm.pending = true;
+            QE('d2ltCreate', false);
+            QH('d2ltStatus', "Creating a setup command...");
+            meshserver.send({ action: 'meshTunnelEnroll', responseid: localTerm.req, expireDays: parseInt(Q('d2ltExpire').value) || 0 });
+        }
+
+        // The server's answer to meshTunnelEnroll.
+        function localTermEnrolled(message) {
+            if (!localTermOpen2() || (message.responseid != localTerm.req)) return;
+            localTerm.pending = false;
+            if ((message.result != 'OK') || (typeof message.code != 'string')) {
+                localTermRenderSetup();
+                QH('d2ltStatus', '<span style=color:#C00>' + EscapeHtml(message.result || "The server refused to create a setup command.") + '</span>');
+                return;
+            }
+            localTerm.enroll = { code: message.code, enrollId: message.enrollId, expire: Date.now() + ((message.expiresIn || 900) * 1000) };
+            localTerm.done = null;
+            localTermRenderSetup();
+        }
+
+        // The one-line setup command for the chosen system and client. The installer comes from this server; when its
+        // certificate is not publicly trusted the command pins it, so it can never be fetched from an impostor.
+        function localTermSetupCommand(os, runtime, code, useWget) {
+            var base = localTermServerUrl(), key = localTermKey(), untrusted = localTermUntrusted();
+            if (os == 'windows') {
+                var url = base + 'meshtunnel-install.ps1' + key, args = code + ((runtime == 'node') ? ' node' : '');
+                if (untrusted && (webCertSha256 != '')) {
+                    // PowerShell 7 cannot run a certificate check written in PowerShell, so the pinned download runs in the
+                    // Windows PowerShell 5.1 that every Windows 10 and 11 has.
+                    var inner = '[Net.ServicePointManager]::SecurityProtocol=3072;[Net.ServicePointManager]::ServerCertificateValidationCallback={param($a,$c)\'' + webCertSha256 + '\'-eq[BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($c.GetRawCertData())).Replace(\'-\',\'\')};&([scriptblock]::Create([Net.WebClient]::new().DownloadString(\'' + url + '\'))) ' + args;
+                    return 'powershell -NoProfile -Command \'' + inner.split('\'').join('\'\'') + '\'';
+                }
+                return '[Net.ServicePointManager]::SecurityProtocol=3072;&([scriptblock]::Create([Net.WebClient]::new().DownloadString(\'' + url + '\'))) ' + args;
+            }
+            var pin = (untrusted && (webCertPin != '')) ? webCertPin : null, rt = ((runtime == 'python') || (runtime == 'node')) ? (' ' + runtime) : '';
+            var surl = '\'' + base + 'meshtunnel-install.sh' + key + '\'';
+            if (useWget) { return 'wget -qO-' + (pin ? (' --no-check-certificate --pinnedpubkey=\'' + pin + '\'') : '') + ' ' + surl + ' | sh -s ' + code + rt; }
+            return 'curl -fsSL' + (pin ? (' -k --pinnedpubkey \'' + pin + '\'') : '') + ' ' + surl + ' | sh -s ' + code + rt;
+        }
+
+        function localTermRenderCommand() {
+            if (!localTermOpen2() || (Q('d2ltCmdArea') == null)) return;
+            var lt = localTerm, e = lt.enroll;
+            if ((e == null) || (lt.done != null)) { QH('d2ltCmdArea', ''); localTermRenderStatus(); return; }
+            var runtime = Q('d2ltRuntime') ? Q('d2ltRuntime').value : 'auto';
+            if (localTermUntrusted() && (((lt.os == 'windows') && (webCertSha256 == '')) || ((lt.os != 'windows') && (webCertPin == '')))) {
+                QH('d2ltCmdArea', '<div style=color:#C00>' + "This server's certificate cannot be pinned in a setup command. Use the manual setup below." + '</div>');
+                return;
+            }
+            var cmd = localTermSetupCommand(lt.os, runtime, e.code, false);
+            var y = '<div style="margin:8px 0 4px 0">' + ((lt.os == 'windows') ? "Paste this into PowerShell on this computer:" : "Paste this into a terminal on this computer:") + '</div>';
+            y += localTermCodeBox('d2ltSetupCmd', cmd, (cmd.length > 300) ? 5 : ((cmd.length > 180) ? 3 : 2));
+            y += '<div style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:4px;font-size:12px">' + localTermCopyLink('d2ltSetupCmd') + '<span id=d2ltCountdown style=color:#555></span>';
+            if (lt.os != 'windows') { y += '<a style=cursor:pointer onclick=localTermToggleWget()>' + "No curl? Use wget" + '</a>'; }
+            y += '</div>';
+            if (lt.os != 'windows') { y += '<div id=d2ltWget style="display:none;margin-top:6px">' + localTermCodeBox('d2ltWgetCmd', localTermSetupCommand(lt.os, runtime, e.code, true), 2) + '<div style="margin-top:4px;font-size:12px">' + localTermCopyLink('d2ltWgetCmd') + '</div></div>'; }
+            QH('d2ltCmdArea', y);
+            localTermRenderStatus();
+        }
+
+        function localTermToggleWget() { var w = Q('d2ltWget'); if (w) { QV('d2ltWget', w.style.display == 'none'); } }
+
+        function localTermRenderStatus() {
+            if (!localTermOpen2() || (Q('d2ltStatus') == null)) return;
+            var lt = localTerm;
+            if (lt.done != null) {
+                QH('d2ltStatus', '<div style="padding:8px;border-radius:4px;background:#E3F6E3;color:#1B5E20">&#x2714; ' + format("Done: this computer is set up with login token {0}. Connect below.", lt.done) + '</div>');
+                return;
+            }
+            if (lt.enroll == null) { if (!lt.pending) { QH('d2ltStatus', ''); } return; }
+            var left = Math.max(0, Math.round((lt.enroll.expire - Date.now()) / 1000));
+            if (left == 0) {
+                QH('d2ltCmdArea', '');
+                QH('d2ltStatus', '<span style=color:#C00>' + "This setup command has expired." + '</span> <input type=button value="' + "Create a new one" + '" onclick="localTerm.enroll=null;localTermRenderSetup();localTermCreate()" />');
+                return;
+            }
+            QH('d2ltCountdown', format("Single use, valid for {0}", Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2)));
+            if (Q('d2ltWaiting') == null) { QH('d2ltStatus', '<span id=d2ltWaiting style=color:#555>&#x23F3; ' + "Waiting for the command to run on your computer..." + '</span>'); }
+        }
+
+        // The setup command ran: the server says our code was traded for a login token (loginTokenAdded event).
+        function localTermTokenAdded(event) {
+            if (!localTermOpen2() || (localTerm.enroll == null) || (event.meshTunnelEnroll == null) || (event.meshTunnelEnroll != localTerm.enroll.enrollId)) return;
+            localTerm.done = (event.newToken && event.newToken.name) ? event.newToken.name : 'meshtunnel';
+            localTerm.enroll = null;
+            putstore('localTermSetupAt', String(Date.now()));
+            localTermRenderSetup();
+        }
+
+        function localTermTick() {
+            if (!localTermOpen2()) { if (localTerm) { clearInterval(localTerm.timer); localTerm = null; } return; }
+            if (localTerm.enroll != null) { localTermRenderStatus(); }
+        }
+
+        function localTermManualHtml() {
+            var os = localTerm.os, url = localTermServerUrl(), key = localTermKey(), untrusted = localTermUntrusted();
+            var pin = (untrusted && (webCertPin != '')) ? webCertPin : null, login = ' login \'' + url + key + '\'' + (pin ? (' --pin \'' + pin + '\'') : '');
+            var dl = function (file, label) { return '<a href="' + EscapeHtml(domainUrl + file + key) + '" download=' + file + '>' + label + '</a>'; };
+            var y = '<details style=margin-top:10px><summary style=cursor:pointer;font-size:12px>' + "Manual setup (download, then sign in with your password)" + '</summary><div style="font-size:12px;margin-top:6px">';
+            if (os == 'windows') {
+                y += '<div style=margin-bottom:4px>' + "Download a client:" + ' ' + dl('meshtunnel.ps1', 'meshtunnel.ps1') + ' ' + "(PowerShell)" + ', ' + dl('meshtunnel.js', 'meshtunnel.js') + ' ' + "(Node.js)" + '. ' + "Then, in PowerShell in the download folder:" + '</div>';
+                y += localTermCodeBox('d2ltManualCmd', 'powershell -ExecutionPolicy Bypass -File .\\meshtunnel.ps1' + login + '\npowershell -ExecutionPolicy Bypass -File .\\meshtunnel.ps1 ssh-config --install', 3);
+            } else {
+                y += '<div style=margin-bottom:4px>' + "Download a client:" + ' ' + dl('meshtunnel.py', 'meshtunnel.py') + ' ' + "(Python 3)" + ', ' + dl('meshtunnel.js', 'meshtunnel.js') + ' ' + "(Node.js)" + '. ' + "Then, in a terminal in the download folder:" + '</div>';
+                y += localTermCodeBox('d2ltManualCmd', 'python3 meshtunnel.py' + login + '\npython3 meshtunnel.py ssh-config --install', 3);
+            }
+            y += '<div style=margin-top:4px>' + localTermCopyLink('d2ltManualCmd') + '</div>';
+            if (pin) { y += '<div style="margin-top:6px;color:#555">' + "This server's certificate is not publicly trusted, the commands pin its public key:" + ' <code style=word-break:break-all>' + EscapeHtml(pin) + '</code></div>'; }
+            return y + '</div></details>';
+        }
+
+        // 2. Connect: open the agent's shell in the user's terminal, ssh, and port forwarding; more in the examples panel.
+        function localTermRenderConnect() {
+            if (!localTermOpen2()) return;
+            var node = terminalNode, windows = isWindowsNode(node), h = meshTunnelHandle(node), os = localTerm.os;
+            var y = '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px">';
+            if (os == 'mac') {
+                y += '<span style=font-size:12px;color:#555>' + "Opening your terminal from this page is not available on macOS yet, use the commands below." + '</span>';
+            } else {
+                y += '<select id=d2ltShell>';
+                if (windows) { y += '<option value=1>' + "Admin Shell" + '</option><option value=6>' + "Admin PowerShell" + '</option><option value=8>' + "User Shell" + '</option><option value=9>' + "User PowerShell" + '</option>'; }
+                else { y += '<option value=1>' + "Root Shell" + '</option><option value=8>' + "User Shell" + '</option><option value=L>' + "Login Shell" + '</option>'; }
+                y += '</select><input type=button value="' + "Open in my terminal" + '" onclick=localTermOpen() />';
+                y += '<span style=font-size:11px;color:#555>' + "The agent's shell in a new terminal window, no SSH server needed." + '</span>';
+            }
+            y += '</div>';
+            y += '<div style="margin-bottom:6px">' + "Commands, as SSH user" + ' <input id=d2ltUser type=text maxlength=64 style=width:120px oninput=localTermUserChanged() value="' + EscapeHtml(getstore(windows ? 'localTermUserW' : 'localTermUser', windows ? 'Administrator' : 'root')) + '" /></div>';
+            y += '<div id=d2ltCmds></div>';
+            y += '<div style="display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-top:8px"><input type=button value="' + "More examples" + ' &#x25B8;" onclick=localTermShowMore(true) />';
+            y += '<span style=font-size:11px;color:#555>' + "Copy files (scp, rsync, sftp), VS Code, SOCKS proxy, Remote Desktop and more." + '</span></div>';
+            y += '<div style="font-size:11px;color:#555;margin-top:8px">' + "ssh, scp, rsync and sftp reach the device's own SSH server through the tunnel, which may listen on 127.0.0.1 only. The agent shell needs no SSH server." + '</div>';
+            QH('d2ltConnect', localTermCard(format("2. Connect to {0}", node.name), y));
+            localTermRenderCmds();
+        }
+
+        function localTermUserChanged() {
+            var windows = isWindowsNode(terminalNode);
+            putstore(windows ? 'localTermUserW' : 'localTermUser', Q('d2ltUser').value.trim());
+            localTermRenderCmds();
+            if (localTerm && localTerm.more) { localTermShowMore(true); }
+        }
+
+        function localTermTarget() {
+            var user = (Q('d2ltUser') ? Q('d2ltUser').value.trim() : '');
+            return ((user != '') ? (user + '@') : '') + meshTunnelHandle(terminalNode) + '.mesh';
+        }
+
+        function localTermRows(prefix, rows) {
+            var y = '<table style="width:100%;border-collapse:collapse">';
+            for (var i = 0; i < rows.length; i++) {
+                if (rows[i].length == 1) { y += '<tr><td colspan=3 style="padding:8px 0 3px 0;font-weight:bold;font-size:12px">' + rows[i][0] + '</td></tr>'; continue; }
+                var id = prefix + i;
+                y += '<tr><td style="width:36%;font-size:12px;padding:2px 8px 2px 0;vertical-align:top">' + rows[i][0] + ((rows[i][2]) ? ('<div style=font-size:11px;color:#777>' + rows[i][2] + '</div>') : '') + '</td>';
+                y += '<td style="padding:2px;vertical-align:top"><div id=' + id + ' class=selecttext style="user-select:all;-webkit-user-select:all;border-radius:3px;padding:3px 5px;background-color:#FFF9D3;color:#000;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;transition:background-color 0.3s">' + EscapeHtml(rows[i][1]) + '</div></td>';
+                y += '<td style="width:18px;text-align:right;vertical-align:top;padding-top:5px"><img src=images/link4.png height=10 width=10 style=cursor:pointer title="' + "Copy to clipboard" + '" onclick=localTermCopy("' + id + '")></td></tr>';
+            }
+            return y + '</table>';
+        }
+
+        function localTermRenderCmds() {
+            if (!localTermOpen2() || (Q('d2ltCmds') == null)) return;
+            var windows = isWindowsNode(terminalNode), h = meshTunnelHandle(terminalNode), t = localTermTarget(), rows = [];
+            rows.push(["SSH", 'ssh ' + t]);
+            rows.push(["Agent shell", 'meshtunnel shell ' + h + (windows ? ' --powershell' : ''), "no SSH server needed"]);
+            if (windows) { rows.push(["Remote Desktop", 'meshtunnel forward 13389 ' + h + ' 3389', (localTerm.os == 'windows') ? "then: mstsc /v:localhost:13389" : "then connect to localhost:13389"]); }
+            else { rows.push(["Forward a port", 'meshtunnel forward 8080 ' + h + ' 80', "then open http://localhost:8080"]); }
+            QH('d2ltCmds', localTermRows('d2ltc', rows));
+        }
+
+        // The "More examples" panel: shown in place of the dialog's content, with a way back.
+        function localTermShowMore(show) {
+            if (!localTermOpen2()) return;
+            localTerm.more = show;
+            QV('d2ltMain', !show);
+            QV('d2ltMore', show);
+            if (!show) { Q('d2lt').scrollTop = 0; return; }
+            var windows = isWindowsNode(terminalNode), h = meshTunnelHandle(terminalNode), t = localTermTarget(), local = localTerm.os;
+            var lw = (local == 'windows'), here = lw ? '.\\' : './', rdir = windows ? 'C:/Users/Public/' : '/tmp/', rows = [];
+            rows.push(["Files"]);
+            rows.push(["Copy a file to the device", 'scp ' + here + 'file.txt ' + t + ':' + rdir]);
+            rows.push(["Copy a file from the device", 'scp ' + t + ':' + (windows ? 'C:/Windows/System32/drivers/etc/hosts' : '/etc/hostname') + ' .']);
+            rows.push(["Copy a folder", 'scp -r ' + here + 'folder ' + t + ':' + rdir]);
+            if (!windows) { rows.push(["Sync a folder, only what changed", 'rsync -avzP ' + here + 'folder/ ' + t + ':/srv/folder/', lw ? "needs rsync: WSL, Cygwin or Git Bash" : null]); }
+            rows.push(["Browse files interactively", 'sftp ' + t]);
+            if ((!lw) && (!windows)) { rows.push(["Mount the device's files", 'mkdir -p ~/mnt/' + h + ' && sshfs ' + t + ':/ ~/mnt/' + h, "needs sshfs"]); }
+            rows.push(["Commands"]);
+            rows.push(["Run one command", 'ssh ' + t + ' ' + (windows ? '\'hostname\'' : '\'uptime; df -h\'')]);
+            rows.push(["Agent shell as the logged-in user", 'meshtunnel shell ' + h + ' --user' + (windows ? ' --powershell' : '')]);
+            if (!windows) { rows.push(["Agent login shell", 'meshtunnel shell ' + h + ' --login']); }
+            rows.push(["Network"]);
+            rows.push(["SOCKS proxy into the device's network", 'ssh -D 1080 -N ' + t, "then set your browser's SOCKS5 proxy to localhost:1080"]);
+            rows.push(["Forward a port over SSH", 'ssh -L 8080:localhost:80 -N ' + t]);
+            rows.push(["Reach another host of its network", 'meshtunnel forward 8443 ' + h + ' 443 --to 192.168.1.10', "then open https://localhost:8443"]);
+            rows.push(["Remote Desktop", 'meshtunnel forward 13389 ' + h + ' 3389', lw ? "then: mstsc /v:localhost:13389" : "then connect your RDP client to localhost:13389"]);
+            rows.push(["Tools"]);
+            rows.push(["VS Code (Remote - SSH)", t, "Remote-SSH: Connect to Host..., then this name"]);
+            if (!windows) { rows.push(["Git over SSH", 'git clone ' + t + ':/srv/repo.git']); }
+            rows.push(["List your devices and their names", 'meshtunnel ls']);
+            rows.push(["Sign this computer out", 'meshtunnel logout']);
+            rows.push(["Remove meshtunnel from this computer", 'meshtunnel uninstall']);
+            var y = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><input type=button value="&#x25C2; ' + "Back" + '" onclick=localTermShowMore(false) /><b>' + format("More examples for {0}", h + '.mesh') + '</b></div>';
+            y += '<div style="background:#FFF;border:1px solid #CCC;border-radius:6px;padding:4px 12px 10px 12px">' + localTermRows('d2ltm', rows) + '</div>';
+            QH('d2ltMore', y);
+            Q('d2lt').scrollTop = 0;
+        }
+
+        // Opens the user's terminal through the meshtunnel:// handler that the setup registers (Linux desktops, Windows).
         // meshtunnel only acts on links for the server it is logged in to, and validates every field.
         function localTermOpen() {
-            var shell = Q('d2localTermShell').value, protocol = (shell == 'L') ? 1 : parseInt(shell);
+            var shell = Q('d2ltShell').value, protocol = (shell == 'L') ? 1 : parseInt(shell);
             downloadFile('meshtunnel://open?s=' + encodeURIComponent(localTermServerUrl()) + '&n=' + encodeURIComponent(terminalNode._id) + '&p=' + protocol + '&l=' + ((shell == 'L') ? 1 : 0) + '&t=' + encodeURIComponent(terminalNode.name));
         }
 

@@ -5255,6 +5255,19 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                 });
                 break;
             }
+            case 'meshTunnelEnroll': { // A single-use setup code for the meshtunnel tool (Local Terminal dialog), see meshtunnelenroll.js
+                var err = null, enroll = null;
+                // Only a person signed in to the web UI gets one: not a tool (x-meshauth) and not a session opened with a login token.
+                if ((req.session.loginToken != null) || (req.headers['x-meshauth'] != null)) { err = "Access denied"; }
+                else if ((user.siteadmin != SITERIGHT_ADMIN) && ((user.siteadmin & SITERIGHT_NOMESHCMD) != 0)) { err = "This account is not allowed to use tools"; }
+                else if (parent.loginTokensAllowed(domain, user) == false) { err = "Login tokens are not allowed for this account on this server"; }
+                else {
+                    enroll = parent.meshTunnelEnrollments.create(user._id, domain.id, { expireDays: command.expireDays });
+                    if (enroll == null) { err = "Too many setup codes are pending on this server, try again later"; }
+                }
+                try { ws.send(JSON.stringify({ action: 'meshTunnelEnroll', responseid: command.responseid, result: (err == null) ? 'OK' : err, code: (enroll ? enroll.code : undefined), enrollId: (enroll ? enroll.enrollId : undefined), expiresIn: (enroll ? enroll.expiresIn : undefined) })); } catch (ex) { }
+                break;
+            }
             case 'createLoginToken': { // Create a new login token
                 var err = null;
 
