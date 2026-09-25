@@ -33545,6 +33545,12 @@
       ]
     },
     {
+      "en": "For extra safety, these commands also verify the server's exact certificate key:",
+      "xloc": [
+        "default.handlebars->131->1606"
+      ]
+    },
+    {
       "bs": "Prisilno ažuriranje agenta",
       "ca": "Força l'actualització de l'agent",
       "cs": "Vynutit aktualizaci agenta",
@@ -81804,10 +81810,7 @@
       ]
     },
     {
-      "en": "This server's certificate is not publicly trusted, the commands pin its public key:",
-      "xloc": [
-        "default.handlebars->131->1606"
-      ]
+      "en": "This server's certificate is not publicly trusted, the commands pin its public key:"
     },
     {
       "en": "This setup command has expired.",

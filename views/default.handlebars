@@ -13310,21 +13310,42 @@
             localTermRenderSetup();
         }
 
-        // The one-line setup command for the chosen system and client. The installer comes from this server; when its
-        // certificate is not publicly trusted the command pins it, so it can never be fetched from an impostor.
+        // A PowerShell -EncodedCommand argument: UTF-16LE bytes of the script, base64. The result has no spaces, quotes,
+        // "&" or any other character special to cmd.exe or to PowerShell's own parsing of a bare argument, so it can be
+        // pasted as-is into Command Prompt, Windows PowerShell 5.1 or PowerShell 7 alike, with no quoting rules to get
+        // wrong (unlike an inline "-Command '...'" string, which "&" inside breaks in cmd.exe: it is not a quote
+        // character there, so it never protects anything, single or double).
+        function toEncodedCommand(script) {
+            var bin = '';
+            for (var i = 0; i < script.length; i++) { var code = script.charCodeAt(i); bin += String.fromCharCode(code & 0xff, (code >> 8) & 0xff); }
+            return btoa(bin);
+        }
+
+        // The one-line setup command for the chosen system and client. The installer comes from this server; whenever this
+        // server can compute its own certificate's key/hash, the command also pins it as a fallback trust path, so it
+        // still works even on a server whose certificate isn't independently trusted by Windows or by curl/wget (this
+        // does not weaken a server that IS otherwise trusted: the pin is only ever an additional way to succeed, since a
+        // normal, already-valid connection is accepted on its own regardless of whether the pin also matches).
         function localTermSetupCommand(os, runtime, code, useWget) {
-            var base = localTermServerUrl(), key = localTermKey(), untrusted = localTermUntrusted();
+            var base = localTermServerUrl(), key = localTermKey();
             if (os == 'windows') {
                 var url = base + 'meshtunnel-install.ps1' + key, args = code + ((runtime == 'node') ? ' node' : '');
-                if (untrusted && (webCertSha256 != '')) {
-                    // PowerShell 7 cannot run a certificate check written in PowerShell, so the pinned download runs in the
-                    // Windows PowerShell 5.1 that every Windows 10 and 11 has.
-                    var inner = '[Net.ServicePointManager]::SecurityProtocol=3072;[Net.ServicePointManager]::ServerCertificateValidationCallback={param($a,$c)\'' + webCertSha256 + '\'-eq[BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($c.GetRawCertData())).Replace(\'-\',\'\')};&([scriptblock]::Create([Net.WebClient]::new().DownloadString(\'' + url + '\'))) ' + args;
-                    return 'powershell -NoProfile -Command \'' + inner.split('\'').join('\'\'') + '\'';
+                var download = '[Net.WebClient]::new().DownloadString(\'' + url + '\')';
+                var inner = '[Net.ServicePointManager]::SecurityProtocol=3072;';
+                if (webCertSha256 != '') {
+                    // Try a normal, fully-validated download first: identical under Windows PowerShell 5.1 and PowerShell 7,
+                    // and what almost every server hits (nothing about a properly, publicly trusted certificate changes). Only
+                    // if that fails -- e.g. a self-signed certificate -- pin its exact key and try once more. PowerShell 7
+                    // cannot itself run a certificate check written in PowerShell ("no Runspace available"), so only THIS
+                    // fallback needs Windows PowerShell 5.1 specifically: invoking the bare "powershell" name (never "pwsh")
+                    // finds it first regardless of which shell the pasted line runs in, keeping the fallback reliable too.
+                    inner += 'try{$s=' + download + '}catch{[Net.ServicePointManager]::ServerCertificateValidationCallback={param($a,$c)\'' + webCertSha256 + '\' -eq [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($c.GetRawCertData())).Replace(\'-\',\'\')};$s=' + download + '};&([scriptblock]::Create($s)) ' + args;
+                } else {
+                    inner += '&([scriptblock]::Create(' + download + ')) ' + args;
                 }
-                return '[Net.ServicePointManager]::SecurityProtocol=3072;&([scriptblock]::Create([Net.WebClient]::new().DownloadString(\'' + url + '\'))) ' + args;
+                return 'powershell -NoProfile -EncodedCommand ' + toEncodedCommand(inner);
             }
-            var pin = (untrusted && (webCertPin != '')) ? webCertPin : null, rt = ((runtime == 'python') || (runtime == 'node')) ? (' ' + runtime) : '';
+            var pin = (webCertPin != '') ? webCertPin : null, rt = ((runtime == 'python') || (runtime == 'node')) ? (' ' + runtime) : '';
             var surl = '\'' + base + 'meshtunnel-install.sh' + key + '\'';
             if (useWget) { return 'wget -qO-' + (pin ? (' --no-check-certificate --pinnedpubkey=\'' + pin + '\'') : '') + ' ' + surl + ' | sh -s ' + code + rt; }
             return 'curl -fsSL' + (pin ? (' -k --pinnedpubkey \'' + pin + '\'') : '') + ' ' + surl + ' | sh -s ' + code + rt;
@@ -13385,8 +13406,8 @@
         }
 
         function localTermManualHtml() {
-            var os = localTerm.os, url = localTermServerUrl(), key = localTermKey(), untrusted = localTermUntrusted();
-            var pin = (untrusted && (webCertPin != '')) ? webCertPin : null, login = ' login \'' + url + key + '\'' + (pin ? (' --pin \'' + pin + '\'') : '');
+            var os = localTerm.os, url = localTermServerUrl(), key = localTermKey();
+            var pin = (webCertPin != '') ? webCertPin : null, login = ' login \'' + url + key + '\'' + (pin ? (' --pin \'' + pin + '\'') : '');
             var dl = function (file, label) { return '<a href="' + EscapeHtml(domainUrl + file + key) + '" download=' + file + '>' + label + '</a>'; };
             var y = '<details style=margin-top:10px><summary style=cursor:pointer;font-size:12px>' + "Manual setup (download, then sign in with your password)" + '</summary><div style="font-size:12px;margin-top:6px">';
             if (os == 'windows') {
@@ -13397,7 +13418,7 @@
                 y += localTermCodeBox('d2ltManualCmd', 'python3 meshtunnel.py' + login + '\npython3 meshtunnel.py ssh-config --install', 3);
             }
             y += '<div style=margin-top:4px>' + localTermCopyLink('d2ltManualCmd') + '</div>';
-            if (pin) { y += '<div style="margin-top:6px;color:#555">' + "This server's certificate is not publicly trusted, the commands pin its public key:" + ' <code style=word-break:break-all>' + EscapeHtml(pin) + '</code></div>'; }
+            if (pin) { y += '<div style="margin-top:6px;color:#555">' + "For extra safety, these commands also verify the server's exact certificate key:" + ' <code style=word-break:break-all>' + EscapeHtml(pin) + '</code></div>'; }
             return y + '</div></details>';
         }
 

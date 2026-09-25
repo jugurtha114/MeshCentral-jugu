@@ -4089,11 +4089,15 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         const data = (f != null) ? meshTunnelFile(f.file) : null;
         if (data == null) { res.sendStatus(404); return; }
         if (f.template == null) { setContentDispositionHeader(res, f.type, name, data.length, name); res.send(data); return; }
-        const untrusted = (obj.isTrustedCert(domain) == false);
+        // PIN/CERTSHA256 are filled in whenever this domain has a certificate to hash, not only when obj.isTrustedCert()
+        // guesses the certificate is untrusted: that check is a heuristic (e.g. a self-signed certificate whose CN merely
+        // looks like a real hostname reads as "trusted"), and getting it wrong must not leave the installer with no way to
+        // succeed. The pin is only ever an additional way to succeed, never a way to fail: a connection that is already
+        // properly CA-validated is accepted on its own, whether or not the pin also happens to match.
         const values = {
             SERVER: meshTunnelServerUrl(req, domain),
-            PIN: untrusted ? (obj.webCertificatePins[domain.id] || '') : '',
-            CERTSHA256: untrusted ? (obj.webCertificateSha256Hex[domain.id] || '') : '',
+            PIN: obj.webCertificatePins[domain.id] || '',
+            CERTSHA256: obj.webCertificateSha256Hex[domain.id] || '',
             LOGINKEY: (domain.loginkey != null) ? encodeURIComponent(String(req.query.key)) : ''
         };
         let text = data.toString('utf8');
