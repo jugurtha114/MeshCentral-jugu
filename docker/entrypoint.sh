@@ -93,10 +93,10 @@ function dynamic_config() {
 
     # Doing the bulk with JQ utility. Given the remaining variables an opportunity with Sed.
     # The way this works is if the environment variable is empty, it will add a _ in front of the variable, commenting it.
-    # This will make the default value apply, as per: https://raw.githubusercontent.com/Ylianst/MeshCentral/master/meshcentral-config-schema.json
+    # This will make the default value apply, as per: https://raw.githubusercontent.com/jugurtha114/MeshCentral-jugu/master/meshcentral-config-schema.json
 
     echo "Compiling given environment variables..."
-    echo "If defaults are going to get applied, refer to: https://raw.githubusercontent.com/Ylianst/MeshCentral/master/meshcentral-config-schema.json"
+    echo "If defaults are going to get applied, refer to: https://raw.githubusercontent.com/jugurtha114/MeshCentral-jugu/master/meshcentral-config-schema.json"
 
     # SESSIONKEY
     if [[ "${REGEN_SESSIONKEY,,}" =~ ^(true|yes)$ ]]; then
