@@ -4282,11 +4282,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
     function handleMeshTunnelRedeem(req, res) {
         const domain = meshTunnelDomain(req, res);
         if (domain == null) return;
-        if (obj.checkAllowLogin(req) == false) { meshTunnelJson(res, 429, { error: 'Too many failed attempts from this address, try again later.' }); return; }
+        if (obj.checkAllowLogin(req, null, true) == false) { meshTunnelJson(res, 429, { error: 'Too many failed attempts from this address, try again later.' }); return; }
         const body = req.body || {};
         const e = obj.meshTunnelEnrollments.redeem(body.code);
         if ((e == null) || (e.domainid != domain.id)) {
-            obj.setbadLogin(req);
+            obj.setbadLogin(req, null, true);
             parent.authLog('https', 'Failed meshtunnel setup code from ' + req.clientIp + ' port ' + req.connection.remotePort);
             meshTunnelJson(res, 403, { error: 'This setup code is not valid: it was already used, has expired, or was mistyped. Create a new one in the web UI (Terminal tab, Local Terminal).' });
             return;
@@ -4317,12 +4317,12 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
     function handleMeshTunnelRevoke(req, res) {
         const domain = meshTunnelDomain(req, res);
         if (domain == null) return;
-        if (obj.checkAllowLogin(req) == false) { meshTunnelJson(res, 429, { error: 'Too many failed attempts from this address, try again later.' }); return; }
+        if (obj.checkAllowLogin(req, null, true) == false) { meshTunnelJson(res, 429, { error: 'Too many failed attempts from this address, try again later.' }); return; }
         const body = req.body || {};
         if ((typeof body.user != 'string') || (body.user.startsWith('~t:') == false) || (typeof body.pass != 'string')) { meshTunnelJson(res, 400, { error: 'Only a login token can be revoked this way.' }); return; }
         obj.authenticate(body.user, body.pass, domain, function (err, userid) {
             const user = (err == null) ? obj.users[userid] : null;
-            if (user == null) { obj.setbadLogin(req); meshTunnelJson(res, 403, { error: 'This login token is not valid, it may already be revoked or expired.' }); return; }
+            if (user == null) { obj.setbadLogin(req, null, true); meshTunnelJson(res, 403, { error: 'This login token is not valid, it may already be revoked or expired.' }); return; }
             obj.db.Remove('logintoken-' + body.user, function () {
                 meshTunnelTokensChanged(user, domain, [body.user]);
                 parent.authLog('https', 'meshtunnel login token revoked by its holder for ' + user.name + ' from ' + req.clientIp + ' port ' + req.connection.remotePort);
@@ -11070,10 +11070,16 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             }
         }
     }
-    function getBadLoginKey(ip, username) {
+    // byAddress is for callers that have no account name to lock (a meshtunnel setup code, for one): even when the
+    // configured blocking mode is "username" they must still be throttled, so they use the address range instead.
+    function getBadLoginMode(byAddress) {
+        const mode = parent.config.settings.maxinvalidlogin?.blocking || 'iprange';
+        return ((mode === 'username') && (byAddress === true)) ? 'iprange' : mode;
+    }
+    function getBadLoginKey(ip, username, byAddress) {
         if (typeof ip === 'object' && ip != null) { ip = ip.clientIp; }
 
-        const mode = parent.config.settings.maxinvalidlogin?.blocking || 'iprange';
+        const mode = getBadLoginMode(byAddress);
 
         if (mode === 'username') {
             return (typeof username === 'string' && username.length > 0) ? username.toLowerCase() : null;
@@ -11120,7 +11126,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
 
         return entry.length < parent.config.settings.maxinvalidlogin.count;
     };
-    obj.setbadLogin = function (ip, username) {
+    obj.setbadLogin = function (ip, username, byAddress) {
         if (!parent.config.settings.maxinvalidlogin) return;
 
         const rawIp = (typeof ip === 'object' && ip != null) ? ip.clientIp : ip;
@@ -11138,7 +11144,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         }
 
         // Resolve key based on configuration ('ip', 'iprange', or 'username')
-        const key = getBadLoginKey(ip, username);
+        const key = getBadLoginKey(ip, username, byAddress);
         if (!key) return;
 
         // Periodic cleanup trigger
@@ -11171,10 +11177,10 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             obj.badLoginTable[key] = now + (cooloff * 60000);
         }
     };
-    obj.checkAllowLogin = function (ip, username) { // Check if a login key is allowed to login
+    obj.checkAllowLogin = function (ip, username, byAddress) { // Check if a login key is allowed to login
         if (parent.config.settings.maxinvalidlogin === false) return true;
 
-        const mode = parent.config.settings.maxinvalidlogin?.blocking || 'iprange';
+        const mode = getBadLoginMode(byAddress);
         if (mode === 'username') {
             if (typeof username === 'string' && username.length > 0) {
                 return obj.isKeyAllowed(username.toLowerCase());
@@ -11182,7 +11188,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             return true;
         }
 
-        const ipKey = getBadLoginKey(ip);
+        const ipKey = getBadLoginKey(ip, null, byAddress);
         return obj.isKeyAllowed(ipKey); // No more than x bad logins in x minutes
     }
     obj.cleanBadLoginTable = function () { // Clean up the IP address login blockage table, we do this occasionaly.
