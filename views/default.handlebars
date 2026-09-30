@@ -4025,11 +4025,11 @@
                                     nodes = newnodes;
 
                                     // If we are looking at a node that is no longer visible, move back to "My Devices"
-                                    if ((xxcurrentView >= 9) && (xxcurrentView < 24) && currentNode && !IsNodeViewable(currentNode)) { setDialogMode(0); go(1); }
+                                    if (isDeviceView(xxcurrentView) && currentNode && !IsNodeViewable(currentNode)) { setDialogMode(0); go(1); }
                                 }
                             }
                             mainUpdate(4 + 128 + 8192 + 16384);
-                            if (currentNode && !IsNodeViewable(currentNode)) { currentNode = null; if ((xxcurrentView >= 9) && (xxcurrentView < 24)) { go(1); } }
+                            if (currentNode && !IsNodeViewable(currentNode)) { currentNode = null; if (isDeviceView(xxcurrentView)) { go(1); } }
                             //meshserver.send({ action: 'files' }); // TODO: Why do we need to do this??
 
                             // If we are looking at a mesh that is now deleted, move back to "My Account"
@@ -4051,9 +4051,9 @@
                             mainUpdate(4 + 8192 + 16384);
 
                             // If we are looking at a mesh that is now deleted, move back to "My Account"
-                            if (xxcurrentView >= 20 && xxcurrentView < 30 && currentMesh._id == message.event.meshid) { setDialogMode(0); go(2); }
+                            if (isGroupView(xxcurrentView) && currentMesh._id == message.event.meshid) { setDialogMode(0); go(2); }
                             // If we are looking at a node in the deleted mesh, move back to "My Devices"
-                            if (xxcurrentView >= 9 && xxcurrentView < 24 && currentNode && !IsNodeViewable(currentNode)) { setDialogMode(0); go(1); }
+                            if (isDeviceView(xxcurrentView) && currentNode && !IsNodeViewable(currentNode)) { setDialogMode(0); go(1); }
                             break;
                         }
                         case 'addnode': {
@@ -4083,7 +4083,7 @@
                             if (index != -1) {
                                 var node = nodes[index];
                                 if (currentNode == node) {
-                                    if (xxcurrentView >= 9 && xxcurrentView < 24) { setDialogMode(0); go(1); }
+                                    if (isDeviceView(xxcurrentView)) { setDialogMode(0); go(1); }
                                     currentNode = null;
                                     // TODO: Correctly disconnect from this node (Desktop/Terminal/Files...)
                                 }
@@ -4169,7 +4169,7 @@
                                         // We don't see the new mesh, remove this device
                                         // TODO: Correctly disconnect from this node (Desktop/Terminal/Files...)
                                         if ((currentNode != null) && (currentNode._id == node._id)) {
-                                            if ((xxcurrentView >= 9) && (xxcurrentView < 24) && !IsNodeViewable(currentNode)) { currentNode = null; setDialogMode(0); go(1); }
+                                            if (isDeviceView(xxcurrentView) && !IsNodeViewable(currentNode)) { currentNode = null; setDialogMode(0); go(1); }
                                         }
                                         var index = -1;
                                         for (var i in nodes) { if (nodes[i]._id == message.event.nodeid) { index = i; break; } }
@@ -4206,7 +4206,7 @@
 
                                     // TODO: Correctly disconnect from this node (Desktop/Terminal/Files...)
                                     if ((currentNode != null) && (currentNode._id == node._id)) {
-                                        if ((xxcurrentView >= 9) && (xxcurrentView < 24) && !IsNodeViewable(currentNode)) { currentNode = null; setDialogMode(0); go(1); }
+                                        if (isDeviceView(xxcurrentView) && !IsNodeViewable(currentNode)) { currentNode = null; setDialogMode(0); go(1); }
                                     }
                                     nodes.splice(index, 1);
                                     mainUpdate(4 | 16);
@@ -9038,7 +9038,7 @@
                 refreshDeviceEvents();
 
                 // Update the web page title
-                if ((currentNode) && (xxcurrentView >= 9) && (xxcurrentView < 24)) {
+                if ((currentNode) && isDeviceView(xxcurrentView)) {
                     document.title = currentNode.name + (mesh?(' - ' + mesh.name):'') + ' - ' + decodeURIComponent('{{{extitle}}}');
                 } else {
                     document.title = decodeURIComponent('{{{extitle}}}');
@@ -9146,7 +9146,7 @@
 
                 // Change the URL
                 var urlviewmode = '';
-                if (((features & 0x10000000) == 0) && (xxcurrentView >= 9) && (xxcurrentView <= 23) && (currentNode != null)) {
+                if (((features & 0x10000000) == 0) && isDeviceView(xxcurrentView) && (currentNode != null)) {
                     urlviewmode = '?viewmode=' + xxcurrentView + '&gotonode=' + currentNode._id.split('/')[2];
                     for (var i in urlargs) { urlviewmode += ('&' + i + '=' + urlargs[i]); }
                     try { window.history.replaceState({}, document.title, window.location.pathname + urlviewmode); } catch (ex) { }
@@ -17751,7 +17751,7 @@
 
             // Change the URL
             var urlviewmode = '';
-            if (((features & 0x10000000) == 0) && (xxcurrentView >= 20) && (xxcurrentView <= 29) && (currentMesh != null)) {
+            if (((features & 0x10000000) == 0) && isGroupView(xxcurrentView) && (currentMesh != null)) {
                 urlviewmode = '?viewmode=' + xxcurrentView + '&gotomesh=' + currentMesh._id.split('/')[2];
                 for (var i in urlargs) { urlviewmode += ('&' + i + '=' + urlargs[i]); }
                 try { window.history.replaceState({}, document.title, window.location.pathname + urlviewmode); } catch (ex) { }
@@ -22745,6 +22745,11 @@
             goBackStack.pop();
         }
 
+        // Device views are the tabs 9-19 plus Mic (22) and Camera (23). Those two numbers sit inside the 20-29 block of the
+        // device group views (20 General, 21 Summary), so a numeric range alone cannot tell a device tab from a group tab.
+        function isDeviceView(v) { return ((v >= 9) && (v <= 19)) || (v == 22) || (v == 23); }
+        function isGroupView(v) { return (v >= 20) && (v <= 29) && !isDeviceView(v); }
+
         function getTabGroup(v) {
             // 9 (Registry), 22 (Mic) and 23 (Camera) sit outside the 10-19
             // block that Math.floor(v/10) naturally groups as "device tabs",
@@ -22766,9 +22771,9 @@
             // If "shift" is pressed, open a new tab.
             if (event && ((event.shiftKey == true) || (event.which == 2) || (event.button == 1)) && (x != 15) && ('{{{currentNode}}}'.toLowerCase() == '')) {
                 // Open the device in a different tab
-                if ((x >= 9) && (x <= 23)) {
+                if (isDeviceView(x)) {
                     if (currentNode) { safeNewWindow(window.location.origin + '{{{domainurl}}}' + '?gotonode=' + currentNode._id.split('/')[2] + '&viewmode=' + x + '&hide=16' + ((urlargs.key)?('&key=' + urlargs.key):''), 'meshcentral:' + currentNode._id); }
-                } else if ((x >= 20) && (x <= 29)) {
+                } else if (isGroupView(x)) {
                     if (currentMesh) { safeNewWindow(window.location.origin + '{{{domainurl}}}' + '?gotomesh=' + currentMesh._id.split('/')[2] + '&viewmode=' + x + '&hide=16' + ((urlargs.key)?('&key=' + urlargs.key):''), 'meshcentral:' + currentMesh._id); }
                 } else if ((x >= 30) && (x <= 39)) {
                     if (currentUser) { safeNewWindow(window.location.origin + '{{{domainurl}}}' + '?gotouser=' + ((serverinfo.crossDomain)?currentUser._id:currentUser._id.split('/')[2]) + '&viewmode=' + x + '&hide=16' + ((urlargs.key)?('&key=' + urlargs.key):''), 'meshcentral:' + currentUser._id); }
@@ -22826,9 +22831,9 @@
             // Change the URL
             if (((features & 0x10000000) == 0) && (xxcurrentView > 0)) {
                 var urlviewmode = '';
-                if ((xxcurrentView >= 9) && (xxcurrentView <= 23)) { // Device Link
+                if (isDeviceView(xxcurrentView)) { // Device Link
                     if (currentNode != null) { urlviewmode = '?viewmode=' + xxcurrentView + '&gotonode=' + currentNode._id.split('/')[2]; }
-                } else if ((xxcurrentView >= 20) && (xxcurrentView <= 29)) { // Device Group Link
+                } else if (isGroupView(xxcurrentView)) { // Device Group Link
                     if (currentMesh != null) { urlviewmode = '?viewmode=' + xxcurrentView + '&gotomesh=' + currentMesh._id.split('/')[2]; }
                 } else if ((xxcurrentView >= 30) && (xxcurrentView <= 39)) { // User Link
                     if (currentUser != null) { urlviewmode = '?viewmode=' + xxcurrentView + '&gotouser=' + ((serverinfo.crossDomain)?currentUser._id:currentUser._id.split('/')[2]); }
@@ -22861,10 +22866,10 @@
             if (goBackStack.length > 0) { backView = goBackStack[goBackStack.length - 1]; }
 
             // My Devices
-            if (x == 1 || (backView == 1) || ((backView == 0) && (x >= 9 && x < 24))) {
+            if (x == 1 || (backView == 1) || ((backView == 0) && isDeviceView(x))) {
                 QC('MainMenuMyDevices').add(mainMenuActiveClass);
                 QC('LeftMenuMyDevices').add(leftMenuActiveClass);
-            } else if (x == 2 || (backView == 2) || ((backView == 0) && (x >= 20 && x < 30))) {
+            } else if (x == 2 || (backView == 2) || ((backView == 0) && isGroupView(x))) {
                 // My Account
                 QC('MainMenuMyAccount').add(mainMenuActiveClass);
                 QC('LeftMenuMyAccount').add(leftMenuActiveClass);
@@ -22898,9 +22903,9 @@
             QV('topbar', x != 0);
             if ((x == 0) && (webPageFullScreen)) { QC('body').add('arg_hide'); }
 
-            QV('MainSubMenuSpan', (x >= 9) && (x < 24));
+            QV('MainSubMenuSpan', isDeviceView(x));
             QV('UserDummyMenuSpan', (x == 51) || ((x < 10) && (x != 6) && webPageFullScreen));
-            QV('MeshSubMenuSpan', (x >= 20) && (x < 30));
+            QV('MeshSubMenuSpan', isGroupView(x));
             QV('UserSubMenuSpan', (x >= 30) && (x < 40));
             QV('ServerSubMenuSpan', x == 6 || x == 115 || x == 40 || x == 41 || x == 42 || x == 43);
             QV('UsersSubMenuSpan', x == 4 || x == 50 || x == 52);
@@ -22943,7 +22948,7 @@
             if (x == 9) { setupRegistry(); }
 
             // Update the web page title
-            if ((currentNode) && (x >= 9) && (x < 24)) {
+            if ((currentNode) && isDeviceView(x)) {
                 document.title = currentNode.name + ((meshes[currentNode.meshid])?(' - ' + meshes[currentNode.meshid].name):'') + ' - ' + decodeURIComponent('{{{extitle}}}');
             } else {
                 document.title = decodeURIComponent('{{{extitle}}}');
