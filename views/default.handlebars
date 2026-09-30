@@ -8984,6 +8984,12 @@
                     || ((node.agent != null) && ((node.agent.caps == null) || ((node.agent.caps & 1) != 0) || (node.intelamt && (node.intelamt.state == 2)))) || ((node.mtype == 3) && ((node.agent.id == 3) || (node.agent.id == 4))))
                     && ((meshrights & 8) || (meshrights & 256)))
                     );
+                // Mic and Camera reach the device through the remote desktop channel, so they follow the Desktop tab's rights, and
+                // only make sense for an agent that can do remote desktop (the "nokvm" agent builds cannot).
+                var mediaAccess = desktopAccess && (node.agent != null) && ((node.agent.caps == null) || ((node.agent.caps & 1) != 0)) && ((meshrights & 8) || (meshrights & 256));
+                QV('MainDevMic', mediaAccess);
+                QV('MainDevCamera', mediaAccess);
+                if (!mediaAccess && ((panel == 22) || (panel == 23))) { panel = 10; }
                 QV('MainDevTerminal', (((node.agent == null) && (node.intelamt != null)) || ((node.agent) && (node.agent.caps == null)) || ((node.agent) && ((node.agent.caps & 2) != 0)) || (node.intelamt && (node.intelamt.state == 2))) && (meshrights & 8) && terminalAccess);
                 QV('MainDevFiles', (node.agent != null) && (node.agent.caps != null) && ((node.agent.caps & 4) != 0) && (meshrights & 8) && fileAccess);
                 QV('MainDevRegistry', (node.agent != null) && isWindowsNode(node) && (meshrights & 8) && ((meshrights == 0xFFFFFFFF) || ((meshrights & 4194304) == 0)));
