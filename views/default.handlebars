@@ -1179,111 +1179,134 @@
                     <div id="p22title">
                         <div id="p22BackButton" style="float:left"><div class="backButton" tabindex=0 onclick=goBack() title="Back" onkeypress="if (event.key == 'Enter') goBack()"><div class="backButtonEx"></div></div></div>
                         <h1>Mic<span id=p22deviceName></span></h1>
+                        <div id="p22titleRight" style="float:right;margin-top:12px">
+                            <div class="viewSelector" onclick=p22FullToggle(event) title="Full Screen. Hold shift for browser full screen." tabindex=0 onkeypress="if (event.key == 'Enter') p22FullToggle(event)" aria-label="Enter fullscreen mode"><div class="viewSelector5"></div></div>
+                        </div>
                     </div>
                     <div id=p22body>
-                        <div id=p22info style="font-size:12px;color:gray;margin-bottom:8px"></div>
-                        <div id=p22statusText style="font-size:14px;margin-bottom:8px"></div>
-                        <div id=p22levelwrap style="display:none;margin-bottom:8px;height:8px;border-radius:3px;overflow:hidden;background:rgba(128,128,128,0.25)">
-                            <div id=p22level style="width:0;height:100%;background:#43a047;transition:width 90ms ease-out"></div>
-                        </div>
-                        <div id=p22toolbar>
-                            <input type=button id=p22startstop value="Start Listening" onclick=p22Toggle(event) aria-label="Start or stop listening to microphone" />
-                        </div>
+                        <div id="p22twoCol">
+                            <div id="p22left">
+                                <div id=p22info style="font-size:12px;color:gray;margin-bottom:8px"></div>
+                                <div id=p22statusText style="font-size:14px;margin-bottom:8px"></div>
+                                <div id=p22levelwrap style="display:none;margin-bottom:8px;height:8px;border-radius:3px;overflow:hidden;background:rgba(128,128,128,0.25)">
+                                    <div id=p22level style="width:0;height:100%;background:#43a047;transition:width 90ms ease-out"></div>
+                                </div>
+                                <div id=p22toolbar>
+                                    <input type=button id=p22startstop value="Start Listening" onclick=p22Toggle(event) aria-label="Start or stop listening to microphone" />
+                                </div>
 
-                        <div id="p22unsupportedNotice" class="warningbox" style="display:none;margin-top:12px">This device's agent does not support custom microphone profiles yet -- it will use its default settings.</div>
-
-                        <!-- Mic settings: an inline card on desktop, a collapsible
-                             accordion once the window is narrow enough that an
-                             always-open card would push the controls off-screen. -->
-                        <div class="mic-settings">
-                            <div class="settings-header" id="p22settingsheader" onclick=p22SettingsToggle(event) aria-expanded="false" aria-controls="p22settingscontent" tabindex=0 onkeypress="if (event.key == 'Enter') p22SettingsToggle(event)">
-                                Settings
+                                <div id="p22unsupportedNotice" class="warningbox" style="display:none;margin-top:12px">This device's agent does not support custom microphone profiles yet -- it will use its default settings.</div>
                             </div>
-                            <div class="settings-content" id="p22settingscontent" role="region" aria-labelledby="p22settingsheader">
-                                <div style="margin-bottom:14px">
-                                    <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p22device">Input Device</label>
-                                    <div style="display:flex;align-items:center">
-                                        <select id=p22device onchange=p22DeviceChanged() aria-label="Select input device">
-                                            <option value="-1">System Default</option>
-                                        </select>
-                                        <span id=p22deviceRefresh title="Refresh device list" onclick=p22QueryDevices() onkeypress="if (event.key == 'Enter') p22QueryDevices()" tabindex=0 style="cursor:pointer;margin-left:6px;font-size:16px" aria-label="Refresh device list">&#8635;</span>
+                            <div id="p22right">
+                                <!-- Fullscreen only: the slide-in drawer's own header
+                                     (see body.p22-fs #p22right in style.css). Hidden
+                                     otherwise -- the two sections below carry their own
+                                     headers for the inline and accordion cases. -->
+                                <div class="p22-drawer-head">
+                                    <span>Mic Settings</span>
+                                    <button type="button" id="p22drawerClose" class="settings-sheet-close" onclick="p22DrawerToggle(event)" aria-label="Close settings">&times;</button>
+                                </div>
+                                <!-- Mic settings: an inline card on desktop, a
+                                     collapsible accordion in a narrow window, and
+                                     content inside the drawer above while fullscreen. -->
+                                <div class="mic-settings">
+                                    <div class="settings-header" id="p22settingsheader" onclick=p22SettingsToggle(event) aria-expanded="false" aria-controls="p22settingscontent" tabindex=0 onkeypress="if (event.key == 'Enter') p22SettingsToggle(event)">
+                                        Mic Settings
+                                    </div>
+                                    <div class="settings-content" id="p22settingscontent" role="region" aria-labelledby="p22settingsheader">
+                                        <div style="margin-bottom:14px">
+                                            <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p22device">Input Device</label>
+                                            <div style="display:flex;align-items:center">
+                                                <select id=p22device onchange=p22DeviceChanged() aria-label="Select input device">
+                                                    <option value="-1">System Default</option>
+                                                </select>
+                                                <span id=p22deviceRefresh title="Refresh device list" onclick=p22QueryDevices() onkeypress="if (event.key == 'Enter') p22QueryDevices()" tabindex=0 style="cursor:pointer;margin-left:6px;font-size:16px" aria-label="Refresh device list">&#8635;</span>
+                                            </div>
+                                        </div>
+
+                                        <div style="margin-bottom:14px">
+                                            <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p22preset">Profile</label>
+                                            <select id=p22preset onchange=micSettingsPresetChanged() aria-label="Select audio profile">
+                                                <option value="balanced">Balanced (Default)</option>
+                                                <option value="lowbandwidth">Low Bandwidth</option>
+                                                <option value="highfidelity">High Fidelity</option>
+                                                <option value="lowlatency">Low Latency</option>
+                                                <option value="custom">Custom</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label style="display:block;font-size:12px;color:gray;margin-bottom:8px">Advanced Settings</label>
+                                            <div id="p22advanced">
+                                                <div style="margin-bottom:10px">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px" for="p22bitrate">Bitrate (kbps)</label>
+                                                    <input type="number" id="p22bitrate" min="6" max="255" onchange=p22AdvancedChanged() aria-label="Set bitrate in kilobits per second" />
+                                                </div>
+                                                <div style="margin-bottom:10px">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px" for="p22application">Application</label>
+                                                    <select id="p22application" onchange=p22AdvancedChanged() aria-label="Select application type">
+                                                        <option value="0">Voice (VOIP)</option>
+                                                        <option value="1">Music (Audio)</option>
+                                                        <option value="2">Lowest Delay</option>
+                                                    </select>
+                                                </div>
+                                                <div style="margin-bottom:10px">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px" for="p22vbrmode">Bitrate Mode</label>
+                                                    <select id="p22vbrmode" onchange=p22AdvancedChanged() aria-label="Select bitrate mode">
+                                                        <option value="cbr">Constant (CBR)</option>
+                                                        <option value="vbr">Variable (VBR)</option>
+                                                        <option value="cvbr">Constrained VBR</option>
+                                                    </select>
+                                                </div>
+                                                <div style="margin-bottom:10px">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px" for="p22bandwidth">Bandwidth</label>
+                                                    <select id="p22bandwidth" onchange=p22AdvancedChanged() aria-label="Select bandwidth mode">
+                                                        <option value="0">Auto</option>
+                                                        <option value="1">Narrowband (4 kHz)</option>
+                                                        <option value="2">Mediumband (6 kHz)</option>
+                                                        <option value="3">Wideband (8 kHz)</option>
+                                                        <option value="4">Super-wideband (12 kHz)</option>
+                                                        <option value="5">Fullband (20 kHz)</option>
+                                                    </select>
+                                                </div>
+                                                <div style="margin-bottom:10px">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px" for="p22framesize">Frame Size</label>
+                                                    <select id="p22framesize" onchange=p22AdvancedChanged() aria-label="Select frame size">
+                                                        <option value="10">10 ms</option>
+                                                        <option value="20">20 ms</option>
+                                                        <option value="40">40 ms</option>
+                                                        <option value="60">60 ms</option>
+                                                    </select>
+                                                </div>
+                                                <div style="margin-bottom:10px">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px" for="p22complexity">Complexity (0-10)</label>
+                                                    <input type="number" id="p22complexity" min="0" max="10" onchange=p22AdvancedChanged() aria-label="Set compression complexity level" />
+                                                </div>
+                                                <label style="display:block;margin-bottom:8px">
+                                                    <input type="checkbox" id="p22dtx" onchange=p22AdvancedChanged() aria-label="Enable discontinuous transmission to save bandwidth during silence" />
+                                                    Discontinuous Transmission (DTX)
+                                                </label>
+                                                <label style="display:block;margin-bottom:8px">
+                                                    <input type="checkbox" id="p22fec" onchange=p22AdvancedChanged() aria-label="Enable forward error correction for robust transmission on lossy links" />
+                                                    Forward Error Correction (FEC)
+                                                </label>
+                                                <div style="margin-bottom:10px">
+                                                    <label style="display:block;font-size:12px;margin-bottom:3px" for="p22losspct">Expected Packet Loss (%)</label>
+                                                    <input type="number" id="p22losspct" min="0" max="100" onchange=p22AdvancedChanged() aria-label="Set expected packet loss percentage" />
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-
-                                <div style="margin-bottom:14px">
-                                    <label style="display:block;font-size:12px;color:gray;margin-bottom:4px" for="p22preset">Profile</label>
-                                    <select id=p22preset onchange=micSettingsPresetChanged() aria-label="Select audio profile">
-                                        <option value="balanced">Balanced (Default)</option>
-                                        <option value="lowbandwidth">Low Bandwidth</option>
-                                        <option value="highfidelity">High Fidelity</option>
-                                        <option value="lowlatency">Low Latency</option>
-                                        <option value="custom">Custom</option>
-                                    </select>
-                                </div>
-
-                                <div>
-                                    <label style="display:block;font-size:12px;color:gray;margin-bottom:8px">Advanced Settings</label>
-                                    <div id="p22advanced">
-                                        <div style="margin-bottom:10px">
-                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22bitrate">Bitrate (kbps)</label>
-                                            <input type="number" id="p22bitrate" min="6" max="255" onchange=p22AdvancedChanged() aria-label="Set bitrate in kilobits per second" />
-                                        </div>
-                                        <div style="margin-bottom:10px">
-                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22application">Application</label>
-                                            <select id="p22application" onchange=p22AdvancedChanged() aria-label="Select application type">
-                                                <option value="0">Voice (VOIP)</option>
-                                                <option value="1">Music (Audio)</option>
-                                                <option value="2">Lowest Delay</option>
-                                            </select>
-                                        </div>
-                                        <div style="margin-bottom:10px">
-                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22vbrmode">Bitrate Mode</label>
-                                            <select id="p22vbrmode" onchange=p22AdvancedChanged() aria-label="Select bitrate mode">
-                                                <option value="cbr">Constant (CBR)</option>
-                                                <option value="vbr">Variable (VBR)</option>
-                                                <option value="cvbr">Constrained VBR</option>
-                                            </select>
-                                        </div>
-                                        <div style="margin-bottom:10px">
-                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22bandwidth">Bandwidth</label>
-                                            <select id="p22bandwidth" onchange=p22AdvancedChanged() aria-label="Select bandwidth mode">
-                                                <option value="0">Auto</option>
-                                                <option value="1">Narrowband (4 kHz)</option>
-                                                <option value="2">Mediumband (6 kHz)</option>
-                                                <option value="3">Wideband (8 kHz)</option>
-                                                <option value="4">Super-wideband (12 kHz)</option>
-                                                <option value="5">Fullband (20 kHz)</option>
-                                            </select>
-                                        </div>
-                                        <div style="margin-bottom:10px">
-                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22framesize">Frame Size</label>
-                                            <select id="p22framesize" onchange=p22AdvancedChanged() aria-label="Select frame size">
-                                                <option value="10">10 ms</option>
-                                                <option value="20">20 ms</option>
-                                                <option value="40">40 ms</option>
-                                                <option value="60">60 ms</option>
-                                            </select>
-                                        </div>
-                                        <div style="margin-bottom:10px">
-                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22complexity">Complexity (0-10)</label>
-                                            <input type="number" id="p22complexity" min="0" max="10" onchange=p22AdvancedChanged() aria-label="Set compression complexity level" />
-                                        </div>
-                                        <label style="display:block;margin-bottom:8px">
-                                            <input type="checkbox" id="p22dtx" onchange=p22AdvancedChanged() aria-label="Enable discontinuous transmission to save bandwidth during silence" />
-                                            Discontinuous Transmission (DTX)
-                                        </label>
-                                        <label style="display:block;margin-bottom:8px">
-                                            <input type="checkbox" id="p22fec" onchange=p22AdvancedChanged() aria-label="Enable forward error correction for robust transmission on lossy links" />
-                                            Forward Error Correction (FEC)
-                                        </label>
-                                        <div style="margin-bottom:10px">
-                                            <label style="display:block;font-size:12px;margin-bottom:3px" for="p22losspct">Expected Packet Loss (%)</label>
-                                            <input type="number" id="p22losspct" min="0" max="100" onchange=p22AdvancedChanged() aria-label="Set expected packet loss percentage" />
-                                        </div>
-                                    </div>
-                                </div>
                             </div>
                         </div>
+                        <!-- Fullscreen only (see .p22-fab in style.css):
+                             fullscreen hides the settings column so the visualization
+                             gets the whole window; this floats over the stage
+                             and slides those same settings back in on demand. -->
+                        <button type="button" id="p22drawerFab" class="p22-fab" onclick="p22DrawerToggle(event)" title="Mic settings" aria-label="Open mic settings" aria-haspopup="dialog">
+                            <span aria-hidden="true">&#9881;</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -9805,6 +9828,49 @@
             toggleSettingsAccordion('p22settingsheader');
         }
 
+        // Mic fullscreen settings drawer. Fullscreen hides the inline
+        // settings column entirely (see body.p22-fs #p22right in style.css)
+        // so the visualization gets the whole window; this slides it back in on
+        // demand from the gear button floating over the stage.
+        var p22FullscreenDrawerOpen = false;
+
+        // QV() only clears an inline style, so it cannot win against the
+        // permanent `display:none` #settingsSheetBackdrop carries in
+        // style.css -- set an explicit value instead, the same way
+        // p23ModalSetOpen() does for #p23modal.
+        function settingsSheetBackdropShow(visible) {
+            var el = Q('settingsSheetBackdrop');
+            if (el) { el.style.display = visible ? 'block' : 'none'; }
+        }
+
+        function p22DrawerToggle(event) {
+            if (event) { event.preventDefault(); event.stopPropagation(); }
+            p22DrawerSetOpen(!p22FullscreenDrawerOpen);
+        }
+
+        function p22DrawerSetOpen(open) {
+            p22FullscreenDrawerOpen = open;
+            settingsSheetBackdropShow(open);
+            if (open) {
+                QC('body').add('p22-drawer-open');
+                var closeBtn = Q('p22drawerClose');
+                if (closeBtn && closeBtn.focus) { closeBtn.focus(); }
+            } else {
+                QC('body').remove('p22-drawer-open');
+                var fab = Q('p22drawerFab');
+                // Only pull focus back to the button if it is actually on
+                // screen: this also runs when leaving fullscreen, where the
+                // FAB is hidden and focusing it would scroll the panel.
+                if (fab && fab.focus && p22Fullscreen) { fab.focus(); }
+            }
+        }
+
+        function settingsSheetBackdropClick() { p22DrawerSetOpen(false); }
+
+        document.addEventListener('keydown', function (event) {
+            if ((event.key === 'Escape') && p22FullscreenDrawerOpen) { p22DrawerSetOpen(false); }
+        });
+
         function p23SettingsToggle(event) {
             if (event) { event.preventDefault(); event.stopPropagation(); }
             toggleSettingsAccordion('p23settingsheader');
@@ -10439,9 +10505,69 @@
         // ----- Full screen ---------------------------------------------------
         // Matches the Desktop panel's full-screen semantics (deskToggleFull):
         // plain click fills the window; shift-click also goes browser
-        // full screen. The panel already bounds its height (#p23main), so
+        // full screen. The panel already bounds its height (#p22main and #p23main), so
         // the same body-class approach works without extra layout work.
+        var p22Fullscreen = false, p22BrowserFullscreen = false;
         var p23Fullscreen = false, p23BrowserFullscreen = false;
+
+        function p22FullToggle(e) {
+            if (e && e.stopPropagation) { e.stopPropagation(); }
+            p22Fullscreen = !p22Fullscreen;
+            // In full screen the whole left column becomes the panel
+            // (.fulldesk #p22main is the full window), so let the visualization
+            // stage fill the height that remains after the panel's own
+            // chrome (title, status bar, toolbar) instead of guessing a
+            // viewport offset that drifts with toolbar wrapping and the
+            // device-name header. The stage's width is bounded below so the
+            // fill never outgrows the screen in a narrow window;
+            // object-fit:contain letterboxes either way.
+            // Note: For Mic tab, we make the audio level visualization and info
+            // expand to fill available space in fullscreen mode
+            var info = Q('p22info');
+            var statusText = Q('p22statusText');
+            var levelwrap = Q('p22levelwrap');
+            if (info && statusText && levelwrap) {
+                if (p22Fullscreen) {
+                    info.style.flex = '1';
+                    statusText.style.flex = '1';
+                    levelwrap.style.flex = '1';
+                    info.style.fontSize = '16px';
+                    statusText.style.fontSize = '18px';
+                    levelwrap.style.height = '20px';
+                } else {
+                    info.style.flex = '0';
+                    statusText.style.flex = '0';
+                    levelwrap.style.flex = '0';
+                    info.style.fontSize = '12px';
+                    statusText.style.fontSize = '14px';
+                    levelwrap.style.height = '8px';
+                }
+            }
+            // The settings drawer only exists while fullscreen, so crossing
+            // that boundary in either direction closes it rather than
+            // leaving it open over a layout it no longer belongs to.
+            if (p22FullscreenDrawerOpen) { p22DrawerSetOpen(false); }
+
+            if (p22Fullscreen) {
+                QC('body').add('fulldesk');
+                // Second, panel-specific class: 'fulldesk' is shared with the
+                // Desktop and Terminal tabs' own deskToggleFull(), so the
+                // Mic drawer/FAB styling keys off this one instead and can
+                // never be dragged in by those tabs going fullscreen.
+                QC('body').add('p22-fs');
+                // If shift is pressed, enter browser full screen.
+                if (e && (e.shiftKey == true)) { enterBrowserFullscreen(Q('body')); p22BrowserFullscreen = true; }
+            } else {
+                QC('body').remove('fulldesk');
+                QC('body').remove('p22-fs');
+                if (p22BrowserFullscreen) { exitBrowserFullscreen(); p22BrowserFullscreen = false; }
+            }
+            // The viewport's parent scrolls the panel; keep it in view.
+            var main = Q('p22main');
+            if (main && p22Fullscreen) { main.scrollTop = 0; }
+        }
+
+        function p23FullToggle(e) {
         function p23FullToggle(e) {
             if (e && e.stopPropagation) { e.stopPropagation(); }
             p23Fullscreen = !p23Fullscreen;

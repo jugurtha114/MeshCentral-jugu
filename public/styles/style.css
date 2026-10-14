@@ -4606,6 +4606,124 @@ body.night.p23-fs #p23right {
     }
 }
 
+/* --- Mic fullscreen settings drawer (p22 only) ---------------------- */
+/* Fullscreen replaces the inline side panel with a floating gear button
+   (.p22-fab, over the visualization stage) that slides #p22right in from the edge
+   as a drawer instead -- so fullscreen isn't permanently giving up screen
+   space to settings, while keeping them one click away.
+   Scoped to body.p22-fs, a class p22FullToggle() sets specifically for the
+   Mic panel -- NOT to .fulldesk, which the Desktop and Terminal tabs'
+   own deskToggleFull() also sets. Keying off the shared class would let
+   those tabs' fullscreen drag this panel's chrome in with it. */
+.p22-fab {
+    display: none;
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-size: 18px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    transition: background-color 0.15s ease;
+}
+.p22-fab:hover { background: rgba(0,0,0,0.75); }
+.p22-fab:focus-visible { outline: 2px solid #4da3ff; outline-offset: 2px; }
+
+body.p22-fs .p22-fab {
+    display: flex;
+}
+
+.p22-drawer-head {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(128,128,128,0.3);
+    font-weight: 600;
+    font-size: 15px;
+}
+
+body.p22-fs #p22right {
+    display: block;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(340px, 88vw);
+    z-index: 1190;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    background: #fff;
+    box-shadow: -6px 0 28px rgba(0,0,0,0.4);
+    padding: 16px calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) 16px;
+    box-sizing: border-box;
+    margin: 0;
+    max-width: none;
+    min-width: 0;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+}
+body.p22-fs.p22-drawer-open #p22right {
+    transform: translateX(0);
+}
+body.p22-fs #p22right .p22-drawer-head {
+    display: flex;
+}
+/* Inside the drawer both sections are just always-expanded, non-interactive
+   labels -- the drawer's own close button is the single toggle, so a second
+   layer of per-section collapsing would only add confusion. */
+body.p22-fs #p22right .settings-header {
+    cursor: default;
+    pointer-events: none;
+}
+body.p22-fs #p22right .settings-header::after {
+    display: none;
+}
+body.p22-fs #p22right .settings-content {
+    display: block !important;
+    position: static !important;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+    max-height: none;
+    overflow: visible;
+    background: transparent;
+    color: inherit;
+}
+body.night.p22-fs #p22right {
+    background: #161616;
+    color: #ddd;
+}
+.night .p22-drawer-head {
+    border-bottom-color: rgba(160,160,160,0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.p22-fs #p22right { transition: none; }
+}
+
+/* Tap feedback, limited to the two controls this feature adds -- deliberately
+   not applied to the shared toolbar buttons or tab cells, so nothing about
+   the existing desktop chrome changes. */
+.p22-fab:active,
+.settings-sheet-close:active {
+    transform: scale(0.96);
+}
+@media (prefers-reduced-motion: reduce) {
+    .p22-fab:active,
+    .settings-sheet-close:active {
+        transform: none;
+    }
+}
+
 
 .dtab {
     overflow: hidden;
