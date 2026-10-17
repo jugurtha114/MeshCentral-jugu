@@ -75,7 +75,18 @@ module.exports.pluginHandler = function (parent) {
             str += '    obj.' + p + ' = {};\r\n';
             if (Array.isArray(obj.exports[p])) {
                 for (var l of Object.values(obj.exports[p])) {
-                    str += '        obj.' + p + '.' + l + ' = ' + obj.plugins[p][l].toString() + '\r\n';
+                    let value = obj.plugins[p][l];
+                    let funcStr;
+                    if (value === null || value === undefined) {
+                        funcStr = 'null';
+                    } else {
+                        funcStr = value.toString();
+                        // If it looks like a function literal missing its closing brace, add it
+                        if (funcStr.trim().startsWith('function(') && !funcStr.endsWith('}')) {
+                            funcStr += '}';
+                        }
+                    }
+                    str += '        obj.' + p + '.' + l + ' = ' + funcStr + '\r\n';
                 }
             }
         }
