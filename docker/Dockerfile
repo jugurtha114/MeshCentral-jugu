@@ -1,7 +1,16 @@
-FROM alpine:3.24 AS node-base
+FROM node:24.22.1-alpine3.24 AS node-amd64
+FROM node:24.22.1-alpine3.24 AS node-arm64
+
+# The node:24 Alpine images are not published for 32-bit ARM, so arm/v6 and arm/v7 use Alpine's nodejs.
+FROM alpine:3.24 AS node-arm
 
 RUN apk add --no-cache --update \
-        nodejs npm jq tzdata
+        nodejs npm
+
+FROM node-${TARGETARCH} AS node-base
+
+RUN apk add --no-cache --update \
+        jq tzdata
 
 ### STAGE 1 BUILDING.
 FROM node-base AS mesh-compiler
@@ -199,7 +208,7 @@ RUN case "$INCLUDE_MARIADB_TOOLS" in \
 
 # Remove left over files and cache
 RUN cd meshcentral \
-    && rm -rf /root /tmp/* /var/tmp/* /usr/lib/node_modules/npm/man /usr/lib/node_modules/npm/doc /usr/lib/node_modules/npm/html \
+    && rm -rf /root /tmp/* /var/tmp/* /usr/local/lib/node_modules/npm/man /usr/local/lib/node_modules/npm/doc /usr/local/lib/node_modules/npm/html \
     && npm cache clean --force
 
 # Expose needed ports

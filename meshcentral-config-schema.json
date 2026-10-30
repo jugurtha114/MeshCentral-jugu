@@ -574,6 +574,53 @@
           "default": 0,
           "description": "How many days to retain a BitLocker recovery key after the agent last read it, so a key stays available while a volume is locked or detached. Especially useful for Bitlocker To Go devices. 0 (default) disables carry-forward: only keys read in the latest scan are kept."
         },
+        "agentDownloads": {
+          "type": "object",
+          "description": "Download missing default agent files from the exact public GitHub releases in the default release manifest. Public release downloads do not require a GitHub token.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Allow downloads of missing default files and release update checks. Set to false to disable both; verified cached files and locally supplied files are still loaded."
+            },
+            "manifest": {
+              "type": "string",
+              "description": "Optional release manifest path, relative to meshcentral-data or absolute, laid over agents/agent-defaults.json shipped with MeshCentral. Each file it lists replaces the shipped pin for that file, and files it does not list keep the shipped pin. Files with no agent type on this server are ignored. Changing this file requires a restart."
+            },
+            "checkIntervalHours": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 168,
+              "default": 24,
+              "description": "Check the configured repositories for stable releases at this interval, with a small random delay. Zero disables scheduled checks. Checks never change defaults or deploy agents. All network checks are disabled when enabled is false."
+            },
+            "fetchReleases": {
+              "type": "boolean",
+              "default": true,
+              "description": "Keep a local copy of each new release found by the scheduled check, under meshcentral-data/agentbuilds/<tag>/. Copies are never served until an administrator uses them. Set to false to only report new releases."
+            },
+            "includePrereleases": {
+              "type": "boolean",
+              "default": false,
+              "description": "Also copy releases marked as prereleases, such as testing builds."
+            },
+            "keepReleases": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "default": 3,
+              "description": "How many of the newest releases per repository to keep a copy of. Older copies are removed; the pinned defaults are never removed. Zero keeps every copy."
+            },
+            "minFreeSpaceMiB": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1048576,
+              "default": 256,
+              "description": "Free disk space, in MiB, that must remain after a download. A default file or release copy that would leave less is not downloaded and is reported."
+            }
+          }
+        },
         "noAgentUpdate": {
           "type": "integer",
           "default": 0,
@@ -588,6 +635,11 @@
           "type": "boolean",
           "default": true,
           "description": "Set to false to not allow temporary agents to be updated."
+        },
+        "disableRecoveryAgent": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, rejects recovery agent connections (agents with capability bit 0x40)."
         },
         "amtScanner": {
           "type": "boolean",
@@ -610,7 +662,7 @@
         "npmProxy": {
           "type": "string",
           "format": "uri",
-          "description": "HTTP proxy to use when downloading npm packages."
+          "description": "HTTP proxy to use when downloading npm packages and the default agent files."
         },
         "allowHighQualityDesktop": {
           "type": "boolean",
@@ -1026,6 +1078,10 @@
               "default": [],
               "description": "Glob for ignoring directories in the data directory. For example [\"**/signedagents\"]"
             },
+            "globNocase": {
+              "type": "boolean",
+              "description": "Enable case-insensitive glob matching. Defaults: true on Windows, false elsewhere."
+            },
             "googleDrive": {
               "type": "object",
               "description": "Enabled automated upload of the server backups to a Google Drive account, once enabled you need to go in \"My Server\" tab as administrator to associate the account.",
@@ -1315,6 +1371,55 @@
             "default": null,
             "description": "Web site .png logo file that is 512x512 in size placed in meshcentral-data that is used for PWA installs on iOS and Android."
           },
+          "pwa": {
+            "type": "object",
+            "description": "Configuration and customization of the manifest for Progressive Web App mode. See https://w3c.github.io/manifest/#typical-structure for reference.",
+            "properties": {
+              "disabled": {
+                "type": "boolean",
+                "default": "false",
+                "description": "Disables the PWA manifest. Returns a 404 if present and 'true'."
+              },
+              "name": {
+                "type": "string",
+                "default": "MeshCentral",
+                "description": "Preferred PWA app name. See https://w3c.github.io/manifest/#name-member."
+              },
+              "short_name": {
+                "type": "string",
+                "default": "MeshCentral",
+                "description": "Preferred PWA short name when there is insufficient space for the name. See https://w3c.github.io/manifest/#short_name-member."
+              },
+              "orientation": {
+                "type": "string",
+                "default": "any",
+                "description": "Preferred PWA screen orientation. See https://w3c.github.io/manifest/#orientation-member."
+              },
+              "display": {
+                "type": "string",
+                "default": "fullscreen",
+                "description": "Preferred PWA display mode. See https://w3c.github.io/manifest/#display-member."
+              },
+              "themeColor": {
+                "type": "string",
+                "default": "#ffffff",
+                "description": "Preferred PWA theme color (HTML). See https://w3c.github.io/manifest/#theme_color-member."
+              },
+              "backgroundColor": {
+                "type": "string",
+                "default": "#ffffff",
+                "description": "Preferred PWA background color (HTML). See https://w3c.github.io/manifest/#background_color-member."
+              },
+              "icons": {
+                "type": "object",
+                "description": "If present, redefines the default icon object. See https://w3c.github.io/manifest/#declaring-multiple-icons for reference."
+              },
+              "shortcuts": {
+                "type": "object",
+                "description": "If present, a shortcuts object with sub urls of the web ui can be defined and accessed via taskbar right-click or long-press action on the app icon on mobile. See https://w3c.github.io/manifest/#creating-shortcuts for reference."
+              }
+            }
+          },          
           "rootRedirect": {
             "type": "string",
             "default": null,

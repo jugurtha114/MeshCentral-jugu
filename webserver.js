@@ -1288,15 +1288,18 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         // Check Google Authenticator
         if (user.otpsecret && (typeof (token) == 'string') && (token.length == 6)){
             const otplib = require('otplib');
-            const verified = otplib.verifySync({ 
-                epochTolerance: 60, 
-                token: token, 
-                secret: user.otpsecret,
-                guardrails: otplib.createGuardrails({
-                    MIN_SECRET_BYTES: 10, // https://github.com/yeojz/otplib/issues/671#issuecomment-4368647105
-                })
-            });
-            if (verified.valid === true) {
+            var verified = null;
+            try {
+                verified = otplib.verifySync({ 
+                    epochTolerance: 60, 
+                    token: token, 
+                    secret: user.otpsecret,
+                    guardrails: otplib.createGuardrails({
+                        MIN_SECRET_BYTES: 10, // https://github.com/yeojz/otplib/issues/671#issuecomment-4368647105
+                    })
+                });
+            } catch (ex) { parent.debug('web', 'checkUserOneTimePassword: exception ' + ex); }
+            if ((verified != null) && (verified.valid === true)) {
                 parent.debug('web', 'checkUserOneTimePassword: success (authenticator).');
                 func(true, { twoFactorType: 'otp' });
                 return;
@@ -4333,24 +4336,27 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
 
     // Return a customised mainifest.json for PWA
     function handleManifestRequest(req, res){
-        const domain = checkUserIpAddress(req);
+        const domain = checkUserIpAddress(req, res);
         if (domain == null) { parent.debug('web', 'handleManifestRequest: no domain'); res.sendStatus(404); return; }
+        if ((domain.pwa != null) && (domain.pwa.disabled == true)) { parent.debug('web', 'handleManifestRequest: PWA disabled'); res.sendStatus(404); return; }
+        const pwa = (domain.pwa != null) ? domain.pwa : {};
         parent.debug('web', 'handleManifestRequest()');
         var manifest = {
-            "name": (domain.title != null) ? domain.title : 'MeshCentral',
-            "short_name": (domain.title != null) ? domain.title : 'MeshCentral',
+            "name": (pwa.name != null) ? pwa.name : ((domain.title != null) ? domain.title : 'MeshCentral'),
+            "short_name": (pwa.short_name != null) ? pwa.short_name : ((domain.title != null) ? domain.title : 'MeshCentral'),
             "description": "Open source web based, remote computer management.",
             "scope": ".",
             "start_url": "/",
-            "display": "fullscreen",
-            "orientation": "any",
-            "theme_color": "#ffffff",
-            "background_color": "#ffffff",
-            "icons": [{
+            "display": (pwa.display != null) ? pwa.display : "fullscreen",
+            "orientation": (pwa.orientation != null) ? pwa.orientation : "any",
+            "theme_color": (pwa.themecolor != null) ? pwa.themecolor : "#ffffff",
+            "background_color": (pwa.backgroundcolor != null) ? pwa.backgroundcolor : "#ffffff",
+            "icons": (pwa.icons != null) ? pwa.icons : [{
                 "src": "pwalogo.png",
                 "sizes": "512x512",
                 "type": "image/png"
-            }]
+            }],
+            "shortcuts": pwa.shortcuts
         };
         res.json(manifest);
     }
@@ -4690,10 +4696,13 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                             if ((command == null) || (typeof command.action != 'string')) return;
                             switch (command.action) {
                                 case 'get': {
-                                    const buffer = Buffer.alloc(8 + command.size);
-                                    //buffer.writeUInt32BE((command.ptr >> 32), 0);
-                                    buffer.writeUInt32BE((command.ptr & 0xFFFFFFFF), 4);
-                                    obj.fs.read(fd, buffer, 8, command.size, command.ptr, function (err, bytesRead, buffer) { if (bytesRead > (buffer.length - 8)) { buffer = buffer.slice(0, bytesRead + 8); } ws.send(buffer); });
+                                    if (!Number.isInteger(command.size) || !Number.isInteger(command.ptr) || (command.size < 0) || (command.size > 1048576) || (command.ptr < 0)) break;
+                                    try {
+                                        const buffer = Buffer.alloc(8 + command.size);
+                                        //buffer.writeUInt32BE((command.ptr >> 32), 0);
+                                        buffer.writeUInt32BE((command.ptr & 0xFFFFFFFF), 4);
+                                        obj.fs.read(fd, buffer, 8, command.size, command.ptr, function (err, bytesRead, buffer) { if (err != null) return; if (bytesRead > (buffer.length - 8)) { buffer = buffer.slice(0, bytesRead + 8); } ws.send(buffer); });
+                                    } catch (ex) { }
                                     break;
                                 }
                             }
@@ -5507,6 +5516,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             for (var i in cmd.nodeids) {
                 obj.GetNodeWithRights(cmd.domain, cmd.user, cmd.nodeids[i], function (node, rights, visible) {
                     if ((node == null) || ((rights & 8) == 0) || (visible == false)) return; // We don't have remote control rights to this device
+                    if ((rights != MESHRIGHT_ADMIN) && ((rights & MESHRIGHT_NOFILES) != 0)) return; // This user is not allowed to use files on this device
                     var agentPath = (((node.agent.id > 0) && (node.agent.id < 5)) || (node.agent.id == 34)) ? cmd.windowsPath : cmd.linuxPath;
                     if (agentPath == null) return;
 
@@ -6409,6 +6419,9 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         });
     };
 
+    // Backup files prepared through the web UI, by userid. backup.zip serves each one once.
+    obj.preparedBackups = {};
+
     // Handle a server backup request
     async function handleBackupRequest(req, res) {
         const domain = checkUserIpAddress(req, res);
@@ -6419,6 +6432,17 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
 
         var user = obj.users[req.session.userid];
         if ((user == null) || ((user.siteadmin & 1) == 0)) { res.sendStatus(401); return; } // Check if we have server backup rights
+
+        // If the web UI already prepared a backup for this user, send it right away
+        const preparedBackup = obj.preparedBackups[user._id];
+        if (preparedBackup != null) {
+            delete obj.preparedBackups[user._id];
+            if (obj.fs.existsSync(preparedBackup)) {
+                res.setHeader('Content-Type', 'application/x-zip-compressed');
+                res.download(preparedBackup);
+                return;
+            }
+        }
 
         // start a new backup and async wait for it to finish with a timeout
         if (parent.config.settings.autobackup.backupintervalhours == -1) { res.status(403).send("Backup disabled."); return; };
@@ -6515,7 +6539,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         if (domain == null) { parent.debug('web', 'handleRootRequest: invalid domain.'); try { res.sendStatus(404); } catch (ex) { } return; }
 
         // If required, check if this user has rights to do this
-        if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true)) && (req.session.userid == null)) { res.sendStatus(401); return; }
+        if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true)) && (req.session.userid == null)) {
+            // Agents fetching their own update have no session, the agentupdate command gives them a cookie instead
+            var updatecookie = obj.parent.decodeCookie(req.query.auth, obj.parent.loginCookieEncryptionKey, 10); // 10 minute timeout, covers the agent's download retries
+            if ((updatecookie == null) || (updatecookie.a != 'aupd') || (req.query.id == null) || (updatecookie.i != req.query.id)) { res.sendStatus(401); return; }
+        }
 
         if ((req.query.meshinstall != null) && (req.query.id != null)) {
             if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { try { res.sendStatus(404); } catch (ex) { } return; } // Check 3FA URL key
@@ -6757,7 +6785,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                     if (req.query.meshaction == 'winrouter') {
                         var p = null;
                         if (obj.parent.meshToolsBinaries['MeshCentralRouter']) { p = obj.parent.meshToolsBinaries['MeshCentralRouter'].path; }
-                        if ((p == null) || (!obj.fs.existsSync(p))) { p = obj.path.join(__dirname, 'agents', 'MeshCentralRouter.exe'); }
+                        if ((p == null) || (!obj.fs.existsSync(p))) { p = obj.parent.getAgentBinaryPath('MeshCentralRouter.exe'); }
                         if (obj.fs.existsSync(p)) {
                             setContentDispositionHeader(res, 'application/octet-stream', 'MeshCentralRouter.exe', null, 'MeshCentralRouter.exe');
                             try { res.sendFile(p); } catch (ex) { }
@@ -6766,7 +6794,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                     } else if (req.query.meshaction == 'winassistant') {
                         var p = null;
                         if (obj.parent.meshToolsBinaries['MeshCentralAssistant']) { p = obj.parent.meshToolsBinaries['MeshCentralAssistant'].path; }
-                        if ((p == null) || (!obj.fs.existsSync(p))) { p = obj.path.join(__dirname, 'agents', 'MeshCentralAssistant.exe'); }
+                        if ((p == null) || (!obj.fs.existsSync(p))) { p = obj.parent.getAgentBinaryPath('MeshCentralAssistant.exe'); }
                         if (obj.fs.existsSync(p)) {
                             setContentDispositionHeader(res, 'application/octet-stream', 'MeshCentralAssistant.exe', null, 'MeshCentralAssistant.exe');
                             try { res.sendFile(p); } catch (ex) { }
@@ -6775,7 +6803,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                     } else if (req.query.meshaction == 'macrouter') {
                         var p = null;
                         if (obj.parent.meshToolsBinaries['MeshCentralRouterMacOS']) { p = obj.parent.meshToolsBinaries['MeshCentralRouterMacOS'].path; }
-                        if ((p == null) || (!obj.fs.existsSync(p))) { p = obj.path.join(__dirname, 'agents', 'MeshCentralRouter.dmg'); }
+                        if ((p == null) || (!obj.fs.existsSync(p))) { p = obj.parent.getAgentBinaryPath('MeshCentralRouter.dmg'); }
                         if (obj.fs.existsSync(p)) {
                             setContentDispositionHeader(res, 'application/octet-stream', 'MeshCentralRouter.dmg', null, 'MeshCentralRouter.dmg');
                             try { res.sendFile(p); } catch (ex) { }
@@ -6838,7 +6866,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             } else if (req.query.meshaction == 'winrouter') {
                 var p = null;
                 if (parent.meshToolsBinaries['MeshCentralRouter']) { p = parent.meshToolsBinaries['MeshCentralRouter'].path; }
-                if ((p == null) || !obj.fs.existsSync(p)) { p = obj.path.join(__dirname, 'agents', 'MeshCentralRouter.exe'); }
+                if ((p == null) || !obj.fs.existsSync(p)) { p = obj.parent.getAgentBinaryPath('MeshCentralRouter.exe'); }
                 if (obj.fs.existsSync(p)) {
                     setContentDispositionHeader(res, 'application/octet-stream', 'MeshCentralRouter.exe', null, 'MeshCentralRouter.exe');
                     try { res.sendFile(p); } catch (ex) { }
@@ -6847,7 +6875,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             } else if (req.query.meshaction == 'winassistant') {
                 var p = null;
                 if (parent.meshToolsBinaries['MeshCentralAssistant']) { p = parent.meshToolsBinaries['MeshCentralAssistant'].path; }
-                if ((p == null) || !obj.fs.existsSync(p)) { p = obj.path.join(__dirname, 'agents', 'MeshCentralAssistant.exe'); }
+                if ((p == null) || !obj.fs.existsSync(p)) { p = obj.parent.getAgentBinaryPath('MeshCentralAssistant.exe'); }
                 if (obj.fs.existsSync(p)) {
                     setContentDispositionHeader(res, 'application/octet-stream', 'MeshCentralAssistant.exe', null, 'MeshCentralAssistant.exe');
                     try { res.sendFile(p); } catch (ex) { }
@@ -6856,7 +6884,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             } else if (req.query.meshaction == 'macrouter') {
                 var p = null;
                 if (parent.meshToolsBinaries['MeshCentralRouterMacOS']) { p = parent.meshToolsBinaries['MeshCentralRouterMacOS'].path; }
-                if ((p == null) || !obj.fs.existsSync(p)) { p = obj.path.join(__dirname, 'agents', 'MeshCentralRouter.dmg'); }
+                if ((p == null) || !obj.fs.existsSync(p)) { p = obj.parent.getAgentBinaryPath('MeshCentralRouter.dmg'); }
                 if (obj.fs.existsSync(p)) {
                     setContentDispositionHeader(res, 'application/octet-stream', 'MeshCentralRouter.dmg', null, 'MeshCentralRouter.dmg');
                     try { res.sendFile(p); } catch (ex) { }
@@ -6948,7 +6976,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                 var response = '<html><head><title>Mesh Agents Cores</title><style>table,th,td { border:1px solid black;border-collapse:collapse;padding:3px; }</style></head><body style=overflow:auto><table>';
                 response += '<tr style="background-color:lightgray"><th>Name</th><th>Size</th><th>Comp</th><th>Decompressed Hash SHA384</th></tr>';
                 for (var i in parent.defaultMeshCores) {
-                    response += '<tr><td>' + i.split(' ').join('&nbsp;') + '</td><td style="text-align:right"><a download href="/meshagents?dlcore=' + i + (req.query.key ? ('&key=' + encodeURIComponent(req.query.key)) : '') + '">' + parent.defaultMeshCores[i].length + '</a></td><td style="text-align:right"><a download href="/meshagents?dlccore=' + i + (req.query.key ? ('&key=' + encodeURIComponent(req.query.key)) : '') + '">' + parent.defaultMeshCoresDeflate[i].length + '</a></td><td>' + Buffer.from(parent.defaultMeshCoresHash[i], 'binary').toString('hex') + '</td></tr>';
+                    response += '<tr><td>' + i.split(' ').join('&nbsp;') + '</td><td style="text-align:right"><a download href="/meshagents?dlcore=' + i + (req.query.key ? ('&key=' + encodeURIComponent(req.query.key)) : '') + '">' + parent.defaultMeshCores[i].length + '</a></td><td style="text-align:right">' + ((parent.defaultMeshCoresDeflate[i] != null) ? ('<a download href="/meshagents?dlccore=' + i + (req.query.key ? ('&key=' + encodeURIComponent(req.query.key)) : '') + '">' + parent.defaultMeshCoresDeflate[i].length + '</a>') : '') + '</td><td>' + Buffer.from(parent.defaultMeshCoresHash[i], 'binary').toString('hex') + '</td></tr>';
                 }
                 response += '</table><a href="' + req.originalUrl.split('?')[0] + (req.query.key ? ('?key=' + encodeURIComponent(req.query.key)) : '') + '">Mesh Agents</a></body></html>';
                 res.send(response);
@@ -7091,9 +7119,6 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         if (domain.agentTranslations != null) { meshsettings += 'translation=' + domain.agentTranslations + '\r\n'; }
 
         // Setup the response output
-        var archive = require('archiver')('zip', { level: 5 }); // Sets the compression method.
-        archive.on('error', function (err) { throw err; });
-
         // Customize the mesh agent file name
         var meshfilename = 'MeshAgent-' + mesh.name + '.zip';
         var meshexecutablename = 'meshagent';
@@ -7124,7 +7149,6 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
 
         // Set the agent download including the mesh name.
         setContentDispositionHeader(res, 'application/octet-stream', meshfilename, null, 'MeshAgent.zip');
-        archive.pipe(res);
 
         // Create a flat XAR macOS installer package. Bundle .mpkg installers are rejected by recent macOS versions.
         const macosInstallerOpts = {
@@ -7142,14 +7166,39 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             macosInstallerOpts.backgroundPath = parent.path.join(parent.datapath, domain.agentcustomization.macosinstallerimage);
         }
 
-        require('./macosinstaller').createMacOSInstaller(macosInstallerOpts).then(function (installer) {
-            archive.append(installer.pkg, { name: meshpkgname });
-            archive.append(installer.uninstall, { name: 'Uninstall.command', mode: 493 });
-            archive.finalize();
-        }).catch(function (err) {
-            parent.debug('web', 'Failed to build macOS MeshAgent package: ' + err);
-            try { res.sendStatus(500); } catch (ex) { }
-        });
+		require('./macosinstaller').createMacOSInstaller(macosInstallerOpts).then(async function (installer) {
+			const { Writable } = require('node:stream');
+			const zip = require('@zip.js/zip.js');
+
+			const zipWriter = new zip.ZipWriter(Writable.toWeb(res), { level: 5 });
+
+			await zipWriter.add(
+				meshpkgname,
+				new zip.Uint8ArrayReader(installer.pkg)
+			);
+
+			await zipWriter.add(
+				'Uninstall.command',
+				(typeof installer.uninstall === 'string')
+					? new zip.TextReader(installer.uninstall)
+					: new zip.Uint8ArrayReader(installer.uninstall),
+				{
+					executable: true,
+					unixMode: 0o100755
+				}
+			);
+
+			await zipWriter.close();
+		}).catch(function (err) {
+			parent.debug('web', 'Failed to build macOS MeshAgent package: ' + err);
+			try {
+				if (!res.headersSent) {
+					res.sendStatus(500);
+				} else {
+					res.destroy(err);
+				}
+			} catch (ex) { }
+		});
     }
 
     // Return a .msh file from a given request, id is the device group identifier or encrypted cookie with the identifier.
@@ -8043,12 +8092,27 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                             var domain = getDomain(req);
                             if (domain.passport == null) { next(); return; }
                             if (req.session && req.session.userid) { next(); return; } // already logged in so dont authenticate just carry on
+                            if (typeof req.query.error == 'string') { // The identity provider refused the login, for example when the user has no application role assigned.
+                                parent.authLog('oidcCallback', `OIDC: LOGIN FAILED: Identity provider returned an error: ${req.query.error}${(typeof req.query.error_description == 'string') ? ' - ' + req.query.error_description : ''}`);
+                                req.session.loginmode = 1;
+                                req.session.messageid = 111; // Access denied.
+                                res.redirect(domain.url);
+                                return;
+                            }
                             if (req.session && req.session['oidc-' + domain.id]) { // we have a request to login so do authenticate
                                 domain.passport.authenticate(`oidc-${domain.id}`, { failureRedirect: domain.url, failureFlash: true })(req, res, next);
                             } else { // no idea so carry on
                                 next(); return;
                             }
-                        }, handleStrategyLogin);
+                        }, handleStrategyLogin, function (err, req, res, next) { // Show the login page instead of an internal error page when the login could not be completed.
+                            var domain = getDomain(req);
+                            parent.authLog('oidcCallback', `OIDC: LOGIN FAILED: ${(err != null) ? (err.message ? err.message : err) : 'Unknown error'}`);
+                            parent.debug('error', `OIDC: LOGIN FAILED: ${(err != null) ? (err.stack ? err.stack : err) : 'Unknown error'}`);
+                            if ((domain == null) || (res.headersSent === true)) { next(err); return; }
+                            req.session.loginmode = 1;
+                            req.session.messageid = 111; // Access denied.
+                            res.redirect(domain.url);
+                        });
                     }
 
                     // Generic SAML
@@ -9088,7 +9152,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                             user = Object.assign(user, { 'groups': groups });
 							if(strategy.custom.authorities && strategy.custom.authorities.includes('roles')){
                                 // Check also for roles
-		                        user.groups = (user.groups || []).concat(user.roles);
+		                        user.groups = (user.groups || []).concat(user.roles || []);
 		                    }
 		                    parent.authLog('oidcCallback',`OIDC: USER GROUPS/ROLES: ${JSON.stringify(user)}`);
 		                    done(null, user);
@@ -9096,18 +9160,23 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                             let error = new Error('OIDC: GROUPS: No groups found due to error:', { cause: err });
                             parent.debug('error', `${JSON.stringify(error)}`);
                             parent.authLog('oidcCallback', error.message);
-                            user.groups = [];
+                            // Keep the roles from the token when they are requested, the group API is not the only source of authorities.
+                            user.groups = (strategy.custom.authorities && strategy.custom.authorities.includes('roles') && user.roles) ? user.roles : [];
                             done(null, user);
                         });
-                    
+
                     } else if (Array.isArray(strategy.custom.authorities) && strategy.custom.authorities.includes('roles')) {
                         // Only roles are requested
                         if (user.roles) {
                             user.groups = user.roles;
                         }
-                        parent.authLog('OIDC: USER ROLES:', user);
+                        parent.authLog('oidcCallback', `OIDC: USER ROLES: ${JSON.stringify(user)}`);
                         done(null, user);
-                    }  
+                    } else {
+                        // No group or role source is configured, continue with no authorities.
+                        parent.authLog('oidcCallback', `OIDC: No groups or roles requested for user: "${user.sid}"`);
+                        done(null, user);
+                    }
                 } else {
                     done(null, user);
                 }
@@ -9132,12 +9201,14 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                                     parent.authLog('getGroups', `ERROR: ${error.message} URL: ${url} OPTIONS: ${JSON.stringify(options)}`);
                                     console.error(error);
                                     reject(error);
+                                    return;
                                 }
                                 if (data.length == 0) {
                                     let error = new Error('OIDC: GROUPS: Getting groups from API failed, request returned no data in response.');
                                     parent.authLog('getGroups', `ERROR: ${error.message} URL: ${url} OPTIONS: ${JSON.stringify(options)}`);
                                     console.error(error);
                                     reject(error);
+                                    return;
                                 }
                                 try {
                                     if (Buffer.isBuffer(data[0])) {
@@ -9151,14 +9222,24 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                                     parent.authLog('getGroups', `ERROR: ${error.message} URL: ${url} OPTIONS: ${JSON.stringify(options)}`);
                                     console.error(error);
                                     reject(error);
+                                    return;
                                 }
                                 if (preset == 'azure') {
-                                    data = JSON.parse(data);
+                                    try {
+                                        data = JSON.parse(data);
+                                    } catch (err) {
+                                        let error = new Error('OIDC: GROUPS: Getting groups from API failed. Response is not valid JSON.', { cause: err });
+                                        parent.authLog('getGroups', `ERROR: ${error.message} URL: ${url} OPTIONS: ${JSON.stringify(options)}`);
+                                        console.error(error);
+                                        reject(error);
+                                        return;
+                                    }
                                     if (data.error) {
                                         let error = new Error('OIDC: GROUPS: Getting groups from API failed. Error joining response data.', { cause: data.error });
                                         parent.authLog('getGroups', `ERROR: ${error.message} URL: ${url} OPTIONS: ${JSON.stringify(options)}`);
                                         console.error(error);
                                         reject(error);
+                                        return;
                                     }
                                     data = data.value;
                                 }
@@ -9691,6 +9772,10 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                             } else {
                                 req.session.userid = user._id;
                                 req.session.ip = req.clientIp;
+                                if ((loginOptions != null) && (loginOptions.tokenName != null) && (loginOptions.tokenUser != null)) {
+                                    req.session.tokenUser = loginOptions.tokenUser;
+                                    req.session.tokenName = loginOptions.tokenName;
+                                }
                                 setSessionRandom(req);
                                 func(ws, req, domain, user);
                             }

@@ -1355,6 +1355,7 @@
                             </td>
                             <td style="width:100px">
                                 <select id="d7framelimiter" style="float:right;width:200px" dir="rtl">
+                                    <option value=20>Very fast</option>
                                     <option selected=selected value=50>Fast</option>
                                     <option value=100>Medium</option>
                                     <option value=400>Slow</option>
@@ -1594,7 +1595,8 @@
                 // Fetch list of meshes, nodes, files
                 meshserver.send({ action: 'usergroups' });
                 meshserver.send({ action: 'meshes' });
-                meshserver.send({ action: 'nodes', skip: (devicePagingState == null) ? 0 : devicePagingState.skip });
+                deviceServerFilter = getDeviceServerFilter();
+                meshserver.send({ action: 'nodes', skip: (devicePagingState == null) ? 0 : devicePagingState.skip, filter: deviceServerFilter });
                 meshserver.send({ action: 'files' });
                 authCookieRenewTimer = setInterval(function () { meshserver.send({ action: 'authcookie' }); }, 1800000); // Request a cookie refresh every 30 minutes.
             }
@@ -3364,7 +3366,29 @@
             return r;
         }
 
+        // When the server pages the device list (maxDeviceView), plain name filters are sent to the server so they
+        // search all devices and not only the current page. Prefixed (u:, ip:, tag:...) and composite filters stay local.
+        var deviceServerFilter = '', deviceServerFilterTimer = null;
+        function getDeviceServerFilter() {
+            var x = Q('SearchInput').value.toLowerCase().trim();
+            if ((x == '') || (/[:,!]/.test(x)) || (/\s(or|and)\s/.test(x))) return '';
+            return x;
+        }
+        function updateDeviceServerFilter() {
+            if ((serverinfo == null) || (serverinfo.maxdeviceview == null) || (meshserver == null)) return;
+            if (deviceServerFilterTimer != null) { clearTimeout(deviceServerFilterTimer); deviceServerFilterTimer = null; }
+            if (getDeviceServerFilter() == deviceServerFilter) return;
+            deviceServerFilterTimer = setTimeout(function () {
+                deviceServerFilterTimer = null;
+                var f = getDeviceServerFilter();
+                if (f == deviceServerFilter) return;
+                deviceServerFilter = f;
+                meshserver.send({ action: 'nodes', skip: 0, filter: f });
+            }, 400);
+        }
+
         function onSearchInputChanged() {
+            updateDeviceServerFilter();
             var rawFull = Q('SearchInput').value.trim();
             var lowerFull = rawFull.toLowerCase();
             putstore('_search', Q('SearchInput').value);
@@ -7482,13 +7506,14 @@
                     var splitip = node.lastaddr.split(':');
                     if (splitip.length > 2) {
                         // IPv6
-                        x += addDetailItem("Last agent address", EscapeHtml(node.lastaddr));
+                        var v6addr = splitip.slice(0, -1).join(':');
+                        x += addDetailItem("Last agent address", isPrivateIP(v6addr) ? EscapeHtml(node.lastaddr) : ('<a href="https://iplocation.com/?ip=' + encodeURIComponent(v6addr) + '" rel="noreferrer noopener" target="MeshIPLookup">' + EscapeHtml(node.lastaddr) + '</a>'));
                     } else {
                         // IPv4
                         if (isPrivateIP(node.lastaddr)) {
                             x += addDetailItem("Last agent address", EscapeHtml(splitip[0]));
                         } else {
-                            x += addDetailItem("Last agent address", '<a href="https://iplocation.com/?ip=' + EscapeHtml(splitip[0]) + '" rel="noreferrer noopener" target="MeshIPLoopup">' + EscapeHtml(splitip[0]) + '</a>');
+                            x += addDetailItem("Last agent address", '<a href="https://iplocation.com/?ip=' + EscapeHtml(splitip[0]) + '" rel="noreferrer noopener" target="MeshIPLookup">' + EscapeHtml(splitip[0]) + '</a>');
                         }
                     }
                 }
@@ -8957,7 +8982,7 @@
             return (EscapeHtml(useridsplit[2]) + guestname);
         }
         function addDetailItem(title, value, state) { return '<table style=width:100%><td>' + nobreak(title) + '<td style=text-align:right' + (state === true ? ';word-break:break-all' : '') + '>' + value + '</table>'; }
-        function isPrivateIP(a) { return (a.startsWith('10.') || a.startsWith('172.16.') || a.startsWith('192.168.')); }
+        function isPrivateIP(a) { if (a.indexOf(':') != a.lastIndexOf(':')) { return /^(::1?$|f[cd]|fe[89ab])/i.test(a); } return /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.)/.test(a); }
         function encodeURIComponentEx(txt) { return encodeURIComponent(txt).replace(/'/g, '%27'); };
         function safeNewWindow(url, target) { var newWindow = window.open(url, target, 'noopener,noreferrer'); if (newWindow) { newWindow.opener = null; } }
         function isWindowsNode(node) { if ((node.mtype != 2) || (node.agent == null) || (node.agent.id == null)) return false; return ([1,2,3,4,21,22,34,42,43].indexOf(node.agent.id) >= 0); }
