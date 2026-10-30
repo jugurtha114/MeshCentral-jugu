@@ -422,6 +422,11 @@
           ],
           "description": "The HTTP proxy to use when contacting the time stamping server, if false, no proxy is used. By default, the npmproxy value is used."
         },
+        "agentInstallStrictTls": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, the one-line Linux/BSD install command never retries a download without certificate checks. By default a system that cannot verify this server's certificate (out-of-date CA store, TLS inspection) is installed anyway, with a warning"
+        },
         "lockAgentDownload": {
           "type": "boolean",
           "default": false,
@@ -2165,6 +2170,11 @@
                 "description": "Action taken if one of the lines in meshagent.tag contains ~ServerTags:tag1,tag2,tag3. 0=Ignore, 1=Set, 2=SetIfEmpty, 3=Append."
               }
             }
+          },
+          "agentInstallStrictTls": {
+            "type": "boolean",
+            "default": false,
+            "description": "When enabled, the one-line Linux/BSD install command never retries a download without certificate checks. By default a system that cannot verify this server's certificate (out-of-date CA store, TLS inspection) is installed anyway, with a warning"
           },
           "lockAgentDownload": {
             "type": "boolean",

@@ -3503,6 +3503,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                     webcerthash: Buffer.from(obj.webCertificateFullHashs[domain.id], 'binary').toString('base64').replace(/\+/g, '@').replace(/\//g, '$'),
                     webcertpin: obj.webCertificatePins[domain.id] || '',
                     webcertsha256: obj.webCertificateSha256Hex[domain.id] || '',
+                    agentinstallstricttls: (obj.agentInstallStrictTls(domain) ? '1' : ''),
                     footer: (domain.footer == null) ? '' : obj.common.replacePlaceholders(domain.footer, {
                         'serverversion': obj.parent.currentVer,
                         'servername': obj.getWebServerName(domain, req),
@@ -6492,6 +6493,14 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         });
     }
 
+    // True when the Linux/BSD install command must never fall back to downloading without certificate checks.
+    // By default a system that cannot verify this server's certificate (out-of-date CA store, a firewall that inspects
+    // TLS) still gets its install, with a warning; "agentInstallStrictTls": true (settings or domain) turns that off.
+    obj.agentInstallStrictTls = function (domain) {
+        if ((domain != null) && (domain.agentinstallstricttls === true)) { return true; }
+        return ((obj.parent.config.settings != null) && (obj.parent.config.settings.agentinstallstricttls === true));
+    }
+
     // Send the Linux/BSD install script already set up for one device group, so a device is added with a
     // single command: wget -qO- 'https://server/meshagents?script=1&meshid=GROUP' | sh (&uninstall=1 removes it)
     function sendAgentInstallScript(req, res, domain) {
@@ -6525,6 +6534,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
         const options = { curloptions: '', wgetoptions: '', fetchoptions: '' };
         if (obj.isTrustedCert(domain) != true) { options.curloptions += '-k '; options.wgetoptions += '--no-check-certificate '; options.fetchoptions += '--no-verify-peer '; }
         if (domain.agentnoproxy === true) { options.curloptions += '--noproxy \'*\' '; options.wgetoptions += '--no-proxy '; options.fetchoptions += '-d '; }
+        options.tlsfallback = (obj.agentInstallStrictTls(domain) ? '0' : '1');
         options.agenturl = serverUrl + '/meshagents?id=';
         options.mshurl = serverUrl + '/meshsettings?id=' + encodeURIComponent(req.query.meshid);
         options.action = (req.query.uninstall == 1) ? 'uninstall' : 'install';

@@ -7327,7 +7327,7 @@
 
             // Linux agent install
             x += '<div id=agins_linux style=display:none>' + format("To add a new computer to the device group of \"{0}\", run the following command. Root credentials will be needed.", EscapeHtml(mesh.name)) + '<br />';
-            x += '<textarea id=agins_linux_area rows=2 cols=20 readonly=readonly style=border-radius:4px;padding:6px;margin-top:4px;margin-bottom:4px;border:0;width:100%;resize:none;height:64px;overflow:auto;font-size:12px class=form-control></textarea>';
+            x += '<textarea id=agins_linux_area rows=2 cols=20 readonly=readonly style=border-radius:4px;padding:6px;margin-top:4px;margin-bottom:4px;border:0;width:100%;resize:none;height:96px;overflow:auto;font-size:12px class=form-control></textarea>';
             x += '<a style=text-decoration:none title="' + "Copy to clipboard" + '" onclick=copyAgentIdValue("agins_linux_area")>' + "Copy" + ' <i class="fa-regular fa-clipboard" style=cursor:pointer></i></a></div>';
 
             // macOS agent install
@@ -7369,7 +7369,7 @@
 
             // Linux agent uninstall
             x += '<div id=agins_linux_un style=display:none>' + "To remove a mesh agent, run the following command. Root credentials will be needed." + '<br />';
-            x += '<textarea id=agins_linux_area_un rows=2 cols=20 readonly=readonly style=border-radius:4px;padding:6px;margin-top:4px;margin-bottom:4px;border:0;width:100%;resize:none;height:64px;overflow:auto;font-size:12px  class=form-control></textarea>';
+            x += '<textarea id=agins_linux_area_un rows=2 cols=20 readonly=readonly style=border-radius:4px;padding:6px;margin-top:4px;margin-bottom:4px;border:0;width:100%;resize:none;height:96px;overflow:auto;font-size:12px  class=form-control></textarea>';
             x += '<a style=text-decoration:none title="' + "Copy to clipboard" + '" onclick=copyAgentIdValue("agins_linux_area_un")>Copy <i class="fa-regular fa-clipboard" style=cursor:pointer></i></a></div>';
 
             // macOS agent uninstall
@@ -7399,14 +7399,21 @@
 
         // Linux/BSD install command. The server sends back a script already set up for the device
         // group (sendAgentInstallScript() in webserver.js), so the command only has to fetch and run it.
+        // A system that cannot verify this server's certificate (out-of-date CA store, a firewall that inspects TLS)
+        // would fail at the very first download. So unless the certificate is known to be untrusted anyway (then the
+        // command skips the check at once) or the server is set to be strict, the download is retried once without the
+        // check; the install script does the same for its own downloads. That form runs through "sh -c", which also
+        // makes it work when it is pasted into csh or fish (the FreeBSD root shell).
         var agentInstallScriptUrl = null;
+        var agentInstallStrictTls = ('{{{agentinstallstricttls}}}' == '1');
         function agentInstallCommand(uninstall) {
-            var url = '\'' + agentInstallScriptUrl + (uninstall ? '&uninstall=1' : '') + '\'', untrusted = ((features & 0x80000000) != 0), noproxy = ((features & 0x2000) != 0);
-            switch (Q('aginsDlTool').value) {
-                case 'curl': return 'curl -fsSL' + (untrusted ? ' -k' : '') + (noproxy ? ' --noproxy \'*\'' : '') + ' ' + url + ' | sh';
-                case 'fetch': return 'fetch -qo-' + (untrusted ? ' --no-verify-peer' : '') + (noproxy ? ' -d' : '') + ' ' + url + ' | sh';
-                default: return 'wget -qO-' + (untrusted ? ' --no-check-certificate' : '') + (noproxy ? ' --no-proxy' : '') + ' ' + url + ' | sh';
-            }
+            var url = agentInstallScriptUrl + (uninstall ? '&uninstall=1' : ''), untrusted = ((features & 0x80000000) != 0), noproxy = ((features & 0x2000) != 0);
+            var tool = Q('aginsDlTool').value, fetchcmd, skipcheck, noprox;
+            if (tool == 'curl') { fetchcmd = 'curl -fsSL'; skipcheck = ' -k'; noprox = noproxy ? ' --noproxy \'*\'' : ''; }
+            else if (tool == 'fetch') { fetchcmd = 'fetch -qo-'; skipcheck = ' --no-verify-peer'; noprox = noproxy ? ' -d' : ''; }
+            else { fetchcmd = 'wget -qO-'; skipcheck = ' --no-check-certificate'; noprox = noproxy ? ' --no-proxy' : ''; }
+            if (untrusted || agentInstallStrictTls) { return fetchcmd + (untrusted ? skipcheck : '') + noprox + ' \'' + url + '\' | sh'; }
+            return 'sh -c \'ms=$(' + fetchcmd + noprox + ' "$0" || ' + fetchcmd + skipcheck + noprox + ' "$0") && printf "%s\\n" "$ms" | sh\' \'' + url + '\'';
         }
 
         var xxModal;

@@ -9,23 +9,64 @@
 agenturl='{{{agenturl}}}'
 mshurl='{{{mshurl}}}'
 action='{{{action}}}'
+tlsfallback='{{{tlsfallback}}}' # 1: a download may be retried without certificate checks when they fail, 0: never
+insecure=
 
 fail() {
   echo "Error: $*" >&2
   exit 1
 }
 
-# Download $1 into the file $2 with whichever HTTP client this system has.
-download() {
+# Download $1 into the file $2 with whichever HTTP client this system has; $3 = k skips the certificate checks.
+# $tool is left set for is_cert_error().
+download_once() {
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL {{{curloptions}}}-o "$2" "$1"
+    tool=curl
+    if [ "$3" = k ]; then curl -fsSLk {{{curloptions}}}-o "$2" "$1"; else curl -fsSL {{{curloptions}}}-o "$2" "$1"; fi
   elif command -v wget >/dev/null 2>&1; then
-    wget -q {{{wgetoptions}}}-O "$2" "$1"
+    tool=wget
+    if [ "$3" = k ]; then wget -q --no-check-certificate {{{wgetoptions}}}-O "$2" "$1"; else wget -q {{{wgetoptions}}}-O "$2" "$1"; fi
   elif command -v fetch >/dev/null 2>&1; then
-    fetch -q {{{fetchoptions}}}-o "$2" "$1"
+    tool=fetch
+    if [ "$3" = k ]; then fetch -q --no-verify-peer {{{fetchoptions}}}-o "$2" "$1"; else fetch -q {{{fetchoptions}}}-o "$2" "$1"; fi
   else
     fail "curl, wget or fetch is needed to download the agent."
   fi
+}
+
+# True when exit status $1 of the last download tool means the server certificate may not have been accepted, and sets
+# $certain when that is the only possible reason: curl 51 (peer certificate), 60 (not trusted: unknown or self-signed
+# issuer), 77 (CA bundle missing), 83 (issuer check) and GNU wget 5. BusyBox wget and fetch exit 1 for everything,
+# so for them any failure counts as a maybe.
+is_cert_error() {
+  certain=1
+  case "$tool/$1" in
+    curl/51|curl/60|curl/77|curl/83|wget/5) return 0 ;;
+    wget/1|fetch/1) certain=; return 0 ;;
+  esac
+  return 1
+}
+
+# A system with an out-of-date CA store, or behind a firewall that inspects TLS, cannot verify a perfectly good
+# certificate. The first such failure is reported and everything after it skips the checks, unless the server says no.
+download() {
+  if [ -z "$insecure" ]; then
+    download_once "$1" "$2" && return 0
+    rc=$?
+    is_cert_error "$rc" || return "$rc"
+    if [ -n "$certain" ]; then
+      why="this system could not verify the TLS certificate of the server (out-of-date CA certificates, or a network that inspects TLS)"
+    else
+      why="the download failed, possibly because this system could not verify the TLS certificate of the server (out-of-date CA certificates, or a network that inspects TLS)"
+    fi
+    if [ "$tlsfallback" != 1 ]; then
+      echo "Error: $why." >&2
+      return "$rc"
+    fi
+    echo "Warning: $why. Continuing without certificate checks." >&2
+    insecure=1
+  fi
+  download_once "$1" "$2" k
 }
 
 # Everything happens in main(), which is only called on the last line: if this
