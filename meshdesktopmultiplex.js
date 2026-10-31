@@ -59,6 +59,19 @@ MNG_ENCAPSULATE_AGENT_COMMAND = 70,
 MNG_KVM_DISPLAY_INFO = 82
 */
 
+// Fork: device audio / microphone / camera messages (IDs follow MeshAgent's meshdefines.h). The multiplexor does not interpret
+// them, it only decides who may send them to the device and who receives what comes back. Without these tables every one of
+// them hit the "Un-handled" branch and was dropped in both directions, so the Mic and Camera panels never learned what the
+// device has ("Checking what camera this device has...") whenever desktopMultiplex is on.
+// Viewer -> device, read-only status questions: any viewer may ask.
+const MEDIA_VIEWER_QUERY = new Set([94, 95, 103, 105, 113]);        // AUDIO_QUERY, MIC_QUERY, MIC_DEVICE_QUERY, CAM_QUERY, CAM_DEVICE_QUERY
+// Viewer -> device, start/stop/configure capture or answer the consent prompt: only viewers that may control the device.
+const MEDIA_VIEWER_CONTROL = new Set([92, 93, 97, 98, 100, 107, 108, 110, 115]); // AUDIO_START/STOP, MIC_START/STOP/CONSENT, CAM_START/STOP/CONSENT/SNAPSHOT
+// Device -> viewers, availability and device lists (no captured content): every viewer.
+const MEDIA_AGENT_STATUS = new Set([91, 96, 104, 106, 114]);        // AUDIO_CAPS, MIC_CAPS, MIC_DEVICE_LIST, CAM_CAPS, CAM_DEVICE_LIST
+// Device -> viewers, captured content: never sent to view-only viewers.
+const MEDIA_AGENT_CONTENT = new Set([90, 99, 109, 116]);            // AUDIO_DATA, MIC_DATA, CAM_DATA, CAM_SNAPSHOT_DATA
+
 function CreateDesktopMultiplexor(parent, domain, nodeid, id, func) {
     var obj = {};
     obj.id = id;                        // Unique identifier for this session
@@ -654,6 +667,8 @@ function CreateDesktopMultiplexor(parent, domain, nodeid, id, func) {
                 if (viewer.viewOnly == false) { obj.sendToAgent(data); }
                 break;
             default:
+                if (MEDIA_VIEWER_QUERY.has(command)) { obj.sendToAgent(data); break; }
+                if (MEDIA_VIEWER_CONTROL.has(command)) { if (viewer.viewOnly == false) { obj.sendToAgent(data); } break; }
                 console.log('Un-handled viewer command: ' + command);
                 break;
         }
@@ -823,6 +838,9 @@ function CreateDesktopMultiplexor(parent, domain, nodeid, id, func) {
                 obj.sendToAllInputViewers(data);
                 break;
             default:
+                // Forward the frame exactly as the agent sent it (jumbo wrapper included): the browser unwraps it itself.
+                if (MEDIA_AGENT_STATUS.has(command)) { obj.sendToAllViewers(jumboData); break; }
+                if (MEDIA_AGENT_CONTENT.has(command)) { obj.sendToAllInputViewers(jumboData); break; }
                 console.log('Un-handled agent command: ' + command + ', length: ' + cmdsize);
                 break;
         }
@@ -982,6 +1000,7 @@ function checkDeviceSharePublicIdentifier(parent, domain, nodeid, pid, extraKey,
     });
 }
 
+module.exports.CreateDesktopMultiplexor = CreateDesktopMultiplexor; // Exported for test/desktop-multiplex-media.test.js
 module.exports.CreateMeshRelay = function (parent, ws, req, domain, user, cookie) {
     if ((cookie != null) && (typeof cookie.nid == 'string') && (typeof cookie.pid == 'string')) {
         checkDeviceSharePublicIdentifier(parent, domain, cookie.nid, cookie.pid, cookie.k, function (result) {
